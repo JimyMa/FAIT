@@ -1,10 +1,9 @@
-#include <torch/csrc/jit/passes/constant_propagation.h>
-#include <torch/csrc/jit/passes/inliner.h>
 #include <torch/csrc/jit/serialization/import.h>
 #include <torchvision/vision.h>
 
-#include "freeze_module.h"
-#include "parallelize_loops.h"
+#include "passes/freeze_module.h"
+#include "passes/parallelize_loops.h"
+#include "passes/tensor_ssa.h"
 
 using namespace torch::jit;
 
@@ -25,17 +24,9 @@ int main(int argc, const char *argv[]) {
     }
     Freeze(&mod);
     auto graph = mod.get_method("forward").graph();
-    ParallelizeLoops(graph);
-    // auto block = graph->block();
-    // graph->setInsertPoint(block->return_node());
-    // auto node = graph->create(sym);
-    // auto mapBlock = node->addBlock();
-    // mapBlock->addInput()->setType(c10::IntType::get());
-    // graph->insertNode(node);
-    // node->output(0)->setType(
-    //     c10::ListType::create(c10::TensorType::createContiguous(
-    //         c10::ScalarType::Float, c10::Device(c10::DeviceType::CPU),
-    //         {-1, 4})));
+    graph->dump();
+    ToTensorSSA(graph);
+    graph->dump();
 
     // auto ty = node->output(0)->type();
     // c10::Device dev(c10::DeviceType::CUDA);

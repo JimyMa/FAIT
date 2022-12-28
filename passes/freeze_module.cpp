@@ -3,6 +3,7 @@
 #include <c10/util/irange.h>
 #include <torch/csrc/jit/ir/alias_analysis.h>
 #include <torch/csrc/jit/jit_log.h>
+#include <torch/csrc/jit/passes/common_subexpression_elimination.h>
 #include <torch/csrc/jit/passes/constant_propagation.h>
 #include <torch/csrc/jit/passes/eliminate_no_ops.h>
 #include <torch/csrc/jit/passes/inliner.h>
@@ -103,6 +104,7 @@ public:
             EliminateNoOps(subgraph);
             LowerSimpleTuples(subgraph);
             ConstantPropagation(subgraph);
+            EliminateCommonSubexpression(subgraph);
         };
 
         std::unordered_map<std::string, std::unordered_set<std::string>>

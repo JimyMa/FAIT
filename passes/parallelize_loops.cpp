@@ -1,12 +1,11 @@
 #include "parallelize_loops.h"
 
-#include "loop_analysis.h"
-#include "util.h"
+#include "util/ir.h"
 
 namespace c10 {
 namespace prim {
 
-Symbol ParallelLoop = Symbol::prim("ParallelLoop");
+auto ParallelLoop = Symbol::prim("ParallelLoop");
 
 }
 }  // namespace c10
@@ -14,10 +13,22 @@ Symbol ParallelLoop = Symbol::prim("ParallelLoop");
 namespace torch {
 namespace jit {
 
+inline static bool containsLoop(Block *block) {
+    bool result = false;
+    traverse(block, [&](Node *node) {
+        if (node->kind() == prim::Loop) {
+            result = true;
+            return false;
+        }
+        return true;
+    });
+    return result;
+}
+
 void ParallelizeLoops(const std::shared_ptr<Graph> &graph) {
     // Find all innermost loops
     std::vector<Node *> loops;
-    walk(graph->block(), [&](Node *node) {
+    traverse(graph->block(), [&](Node *node) {
         if (node->kind() != prim::Loop) return true;
         auto block = node->blocks()[0];
         if (containsLoop(block)) return true;  // skip nested loop
@@ -26,10 +37,6 @@ void ParallelizeLoops(const std::shared_ptr<Graph> &graph) {
     });
 
     //
-
-    for (auto node : loops) {
-        node->dump();
-    }
 
     return;
 }

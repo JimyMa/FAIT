@@ -1,6 +1,6 @@
 #pragma once
 
-#include "loop_analysis.h"
+#include <torch/csrc/jit/ir/ir.h>
 
 namespace c10 {
 namespace prim {
@@ -8,7 +8,7 @@ namespace prim {
 extern Symbol ParallelLoop;
 
 }
-}
+}  // namespace c10
 
 namespace torch {
 namespace jit {
