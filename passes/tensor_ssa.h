@@ -14,12 +14,14 @@ extern Symbol Assign, Update;
 namespace torch {
 namespace jit {
 
+namespace tssa = c10::tssa;
+
 inline Node *createTssaAssign(Graph *graph, Value *dst, Value *src) {
-    return graph->create(c10::tssa::Assign, {dst, src});
+    return graph->create(tssa::Assign, {dst, src});
 }
 
 inline Node *createTssaUpdate(Graph *graph, Value *tensor, Value *cause) {
-    return graph->create(c10::tssa::Update, {tensor, cause});
+    return graph->create(tssa::Update, {tensor, cause});
 }
 
 void ToTensorSSA(const std::shared_ptr<Graph> &graph);

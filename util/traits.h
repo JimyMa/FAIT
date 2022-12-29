@@ -5,8 +5,6 @@
 namespace torch {
 namespace jit {
 
-extern std::unordered_set<Symbol> supportedViewOpSymbols;
-
 inline bool isAliasing(Node *node) {
     auto schema = node->maybeSchema();
     if (!schema) return false;

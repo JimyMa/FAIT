@@ -28,7 +28,7 @@ inline void replace(Node *oldNode, Node *newNode) {
 /// @param pattern The rewrite pattern, which returns a new node if the rewrite
 /// is successfully applied and the following traversal should begin right after
 /// this node, and nullptr otherwise.
-void rewriteNode(Block *block, const std::function<Node *(Node *)> &pattern);
+void rewrite(Block *block, const std::function<Node *(Node *)> &pattern);
 
 }  // namespace jit
 }  // namespace torch

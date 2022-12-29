@@ -4,7 +4,7 @@
 
 #include "util/disjoint_set.h"
 #include "util/ir.h"
-#include "util/op_traits.h"
+#include "util/traits.h"
 
 namespace c10 {
 namespace tssa {
@@ -19,9 +19,10 @@ auto Update = Symbol::fromQualString("tssa::Update");
 namespace torch {
 namespace jit {
 
-inline static Node *rewriteMutating(
+static Node *rewriteMutating(
     Node *node, Graph *graph, DisjointSet<Value *> &aliasSets,
-    std::unordered_map<Value *, std::vector<Node *>> &mutRecords) {
+    std::vector<Value *> &mutValues,
+    std::unordered_map<Value *, std::vector<Node *>> &mutNodes) {
     // Replace mutating operations with non-mutating ones
     auto block = node->owningBlock();
     auto beforeAssign = node->input(0);
@@ -82,21 +83,119 @@ inline static Node *rewriteMutating(
         }
         if (alias->node()->owningBlock() != block) {
             // Alias is not defined in current block, add to mutation record
-            if (mutRecords.count(alias))
-                mutRecords[alias].push_back(mutNode);
-            else
-                mutRecords[alias] = {mutNode};
+            if (mutNodes.count(alias))
+                mutNodes[alias].push_back(mutNode);
+            else {
+                mutValues.push_back(alias);
+                mutNodes[alias] = {mutNode};
+            }
         }
     }
 
     return lastNode;
 }
 
+static void addMutatedValueToBlock(
+    Value *mutated, Block *block, std::unordered_set<Block *> &visitedBlocks,
+    std::unordered_map<Value *, Value *> &valueToMut, bool handleNode = true) {
+    // Skip if this block if visited before
+    if (visitedBlocks.count(block)) return;
+    visitedBlocks.insert(block);
+
+    // Add to block and node returns
+    block->insertOutput(block->outputs().size(), mutated);
+    auto node = block->owningNode();
+    if (handleNode) {
+        auto nodeRet = node->addOutput();
+        valueToMut.insert({nodeRet, mutated});
+    }
+
+    // Handle values that are specific to node kinds
+    switch (node->kind()) {
+        case prim::Loop: {
+            // add to block parameter of loop body
+            auto param = block->addInput();
+            valueToMut.insert({param, mutated});
+            // add to argument of loop node
+            node->addInput(mutated);
+            break;
+        }
+
+        case prim::If: {
+            // add to the block of the other branch
+            auto blockId = block == node->blocks()[1];
+            addMutatedValueToBlock(mutated, node->blocks()[!blockId],
+                                   visitedBlocks, valueToMut, false);
+            break;
+        }
+    }
+}
+
+static void renameValues(
+    Block *block, std::unordered_map<Value *, Value *> &valueToMut,
+    std::unordered_map<Value *, std::vector<Value *>> &renameStacks) {
+    // Initialize rename counts in current scope
+    std::unordered_map<Value *, size_t> renameCounts;
+    auto updateValue = [&](Value *value) {
+        // find mutated version of this value
+        Value *mutated = nullptr;
+        if (valueToMut.count(value))
+            mutated = valueToMut[value];
+        else {
+            auto defNode = value->node();
+            auto kind = defNode->kind();
+            if (kind == tssa::Assign || kind == tssa::Update) {
+                mutated = valueToMut[defNode->input(0)];
+                valueToMut.insert({value, mutated});
+            }
+        }
+        if (!mutated) return;
+        // add to rename stack
+        renameStacks[mutated].push_back(value);
+        // add to rename counts
+        if (renameCounts.count(mutated))
+            renameCounts[mutated]++;
+        else
+            renameCounts.insert({mutated, 1});
+    };
+    auto replaceInputsOf = [&](Node *node) {
+        for (auto i = 0u; i < node->inputs().size(); i++) {
+            auto input = node->input(i);
+            if (!renameStacks.count(input)) continue;
+            node->replaceInput(i, renameStacks[input].back());
+        }
+    };
+
+    // Add parameters to rename stack
+    for (auto param : block->inputs()) updateValue(param);
+
+    // Process each node
+    for (auto node : block->nodes()) {
+        // replace inputs
+        replaceInputsOf(node);
+        // visit owned blocks
+        for (auto nested : node->blocks())
+            renameValues(nested, valueToMut, renameStacks);
+        // update outputs
+        for (auto output : node->outputs()) updateValue(output);
+    }
+
+    // Process return node
+    replaceInputsOf(block->return_node());
+
+    // Restore rename stack
+    for (auto &pair : renameCounts) {
+        for (auto i = 0u; i < pair.second; i++)
+            renameStacks[pair.first].pop_back();
+    }
+}
+
 void ToTensorSSA(const std::shared_ptr<Graph> &graph) {
     // Find all mutated tensors and remove mutation
     DisjointSet<Value *> aliasSets;
-    std::unordered_map<Value *, std::vector<Node *>> mutRecords;
-    rewriteNode(graph->block(), [&](Node *node) -> Node * {
+    std::vector<Value *> mutValues;
+    std::unordered_map<Value *, std::vector<Node *>> mutNodes;
+    rewrite(graph->block(), [&](Node *node) -> Node * {
         // Skip non-tensor operations
         if (node->inputs().empty() || node->outputs().empty()) return nullptr;
         if (node->input(0)->type()->kind() != TypeKind::TensorType ||
@@ -104,8 +203,10 @@ void ToTensorSSA(const std::shared_ptr<Graph> &graph) {
             return nullptr;
 
         // Rewrite mutating nodes to remove mutation
-        if (isMutating(node))
-            return rewriteMutating(node, graph.get(), aliasSets, mutRecords);
+        if (isMutating(node)) {
+                        return rewriteMutating(node, graph.get(), aliasSets, mutValues,
+                                   mutNodes);
+        }
 
         // Extend tensor alias graph if the node is aliasing
         if (isAliasing(node)) aliasSets.merge(node->input(0), node->output(0));
@@ -113,7 +214,26 @@ void ToTensorSSA(const std::shared_ptr<Graph> &graph) {
         return nullptr;
     });
 
-    return;
+    // Add block parameters and returns for out-of-block mutation
+    std::unordered_map<Value *, Value *> valueToMut;
+    for (auto mutated : mutValues) {
+        valueToMut.insert({mutated, mutated});
+        auto defBlock = mutated->node()->owningBlock();
+        std::unordered_set<Block *> visitedBlocks;
+        auto &nodes = mutNodes[mutated];
+        for (auto node : nodes) {
+            for (auto block = node->owningBlock(); block != defBlock;
+                 block = block->owningNode()->owningBlock()) {
+                addMutatedValueToBlock(mutated, block, visitedBlocks,
+                                       valueToMut);
+            }
+        }
+    }
+
+    // Replace placeholders with real SSA values
+    std::unordered_map<Value *, std::vector<Value *>> renameStacks;
+    for (auto value : mutValues) renameStacks.insert({value, {}});
+    renameValues(graph->block(), valueToMut, renameStacks);
 }
 
 }  // namespace jit

@@ -12,12 +12,12 @@ bool traverse(Block *block, const std::function<bool(Node *)> &visitor) {
     return true;
 }
 
-void rewriteNode(Block *block, const std::function<Node *(Node *)> &pattern) {
+void rewrite(Block *block, const std::function<Node *(Node *)> &pattern) {
     for (auto node = block->nodes().front(); node != block->nodes().back();
          node = node->next()) {
         auto newNode = pattern(node);
-        if (newNode) node = newNode->next();
-        for (auto nested : node->blocks()) rewriteNode(nested, pattern);
+        if (newNode) node = newNode;
+        for (auto nested : node->blocks()) rewrite(nested, pattern);
     }
 }
 
