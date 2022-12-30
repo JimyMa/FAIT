@@ -2,6 +2,7 @@ from typing import List
 
 import torch
 
+
 class SimpleLoop(torch.nn.Module):
     def forward(self, pred_maps: List[torch.Tensor]):
         featmap_strides = [32, 16, 8]
@@ -18,6 +19,7 @@ class SimpleLoop(torch.nn.Module):
         flatten_strides = torch.cat(flatten_strides)
 
         return flatten_preds, flatten_strides
+
 
 mod = torch.jit.script(SimpleLoop())
 mod.eval()

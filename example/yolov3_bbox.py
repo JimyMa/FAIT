@@ -254,4 +254,4 @@ if __name__ == '__main__':
     mod = torch.jit.script(mod)
     # mod = torch.jit.freeze(mod)
     print(mod.graph)
-    # torch.jit.save(mod, 'yolov3_bbox.pt')
+    torch.jit.save(mod, 'yolov3_bbox.pt')
