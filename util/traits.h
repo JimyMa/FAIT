@@ -18,7 +18,5 @@ inline bool isMutating(Node *node) {
     return schema->is_mutable({c10::SchemaArgType::input, 0});
 }
 
-bool hasSideEffects(Node *node);
-
 }  // namespace jit
 }  // namespace torch

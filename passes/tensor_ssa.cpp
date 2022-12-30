@@ -234,6 +234,9 @@ void ToTensorSSA(const std::shared_ptr<Graph> &graph) {
     std::unordered_map<Value *, std::vector<Value *>> renameStacks;
     for (auto value : mutValues) renameStacks.insert({value, {}});
     renameValues(graph->block(), valueToMut, renameStacks);
+
+    // Eliminate redundant updates
+    EliminateDeadCodeTSSA(graph);
 }
 
 }  // namespace jit
