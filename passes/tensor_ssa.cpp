@@ -2,6 +2,7 @@
 
 #include <torch/csrc/jit/ir/alias_analysis.h>
 
+#include "dce_tssa.h"
 #include "util/disjoint_set.h"
 #include "util/ir.h"
 #include "util/traits.h"
@@ -25,11 +26,11 @@ static Node *rewriteMutating(
     std::unordered_map<Value *, std::vector<Node *>> &mutNodes) {
     // Replace mutating operations with non-mutating ones
     auto block = node->owningBlock();
-    auto beforeAssign = node->input(0);
+    auto mutated = node->input(0);
     Node *assignNode = nullptr;
     switch (node->kind()) {
         case aten::copy_: {
-            assignNode = createTssaAssign(graph, beforeAssign, node->input(1));
+            assignNode = createTssaAssign(graph, mutated, node->input(1));
             replace(node, assignNode);
             break;
         }
@@ -42,8 +43,8 @@ static Node *rewriteMutating(
             aliasSets.merge(indexNode->input(0), indexNode->output(0));
 
             // Create assignment to the imaginary view
-            beforeAssign = indexNode->output(0);
-            assignNode = createTssaAssign(graph, beforeAssign, node->input(2));
+            mutated = indexNode->output(0);
+            assignNode = createTssaAssign(graph, mutated, node->input(2));
             assignNode->insertAfter(indexNode);
             TORCH_CHECK(!node->hasUses());
             node->destroy();
@@ -62,8 +63,7 @@ static Node *rewriteMutating(
             TORCH_INTERNAL_ASSERT(opNode->maybeSchema());
 
             // Create assignment node
-            assignNode =
-                createTssaAssign(graph, beforeAssign, opNode->output(0));
+            assignNode = createTssaAssign(graph, mutated, opNode->output(0));
             replace(node, assignNode);
             break;
         }
@@ -73,22 +73,20 @@ static Node *rewriteMutating(
     // Update aliases of the assigned value
     auto afterAssign = assignNode->output(0);
     auto lastNode = assignNode;
-    for (auto alias : aliasSets.getSetOf(beforeAssign)) {
+    for (auto alias : aliasSets.getSetOf(mutated)) {
         auto mutNode = assignNode;
-        if (alias != beforeAssign) {
+        if (alias != mutated) {
             auto updateNode = createTssaUpdate(graph, alias, afterAssign);
             updateNode->insertAfter(lastNode);
             mutNode = updateNode;
             lastNode = updateNode;
         }
-        if (alias->node()->owningBlock() != block) {
-            // Alias is not defined in current block, add to mutation record
-            if (mutNodes.count(alias))
-                mutNodes[alias].push_back(mutNode);
-            else {
-                mutValues.push_back(alias);
-                mutNodes[alias] = {mutNode};
-            }
+        // Add to mutation record
+        if (mutNodes.count(alias))
+            mutNodes[alias].push_back(mutNode);
+        else {
+            mutValues.push_back(alias);
+            mutNodes[alias] = {mutNode};
         }
     }
 
@@ -161,8 +159,10 @@ static void renameValues(
     auto replaceInputsOf = [&](Node *node) {
         for (auto i = 0u; i < node->inputs().size(); i++) {
             auto input = node->input(i);
-            if (!renameStacks.count(input)) continue;
-            node->replaceInput(i, renameStacks[input].back());
+            if (!valueToMut.count(input)) continue;
+            auto mutated = valueToMut[input];
+            auto latest = renameStacks[mutated].back();
+            node->replaceInput(i, latest);
         }
     };
 
@@ -204,7 +204,7 @@ void ToTensorSSA(const std::shared_ptr<Graph> &graph) {
 
         // Rewrite mutating nodes to remove mutation
         if (isMutating(node)) {
-                        return rewriteMutating(node, graph.get(), aliasSets, mutValues,
+            return rewriteMutating(node, graph.get(), aliasSets, mutValues,
                                    mutNodes);
         }
 
