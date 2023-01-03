@@ -2,7 +2,7 @@
 
 #include <torch/csrc/jit/ir/alias_analysis.h>
 
-#include "dce_tssa.h"
+#include "common_passes.h"
 #include "util/disjoint_set.h"
 #include "util/ir.h"
 #include "util/traits.h"
@@ -10,9 +10,9 @@
 namespace c10 {
 namespace tssa {
 
-auto ns = Symbol::fromQualString("namespaces::tssa");
-auto Assign = Symbol::fromQualString("tssa::Assign");
-auto Update = Symbol::fromQualString("tssa::Update");
+Symbol ns = Symbol::fromQualString("namespaces::tssa");
+Symbol Assign = Symbol::fromQualString("tssa::Assign");
+Symbol Update = Symbol::fromQualString("tssa::Update");
 
 }  // namespace tssa
 }  // namespace c10
