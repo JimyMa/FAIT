@@ -1,10 +1,9 @@
-#include "dce_tssa.h"
-
 #include <c10/util/irange.h>
 #include <torch/csrc/jit/ir/ir_views.h>
 #include <torch/csrc/jit/jit_log.h>
 #include <torch/csrc/utils/memory.h>
 
+#include "common_passes.h"
 #include "util/traits.h"
 
 namespace torch {
