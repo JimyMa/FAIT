@@ -237,6 +237,19 @@ void ToTensorSSA(const std::shared_ptr<Graph> &graph) {
 
     // Eliminate redundant updates
     EliminateDeadCodeTSSA(graph);
+
+    // Eliminate redundant assignment
+    rewrite(graph->block(), [](Node *node) -> Node * {
+        if (node->kind() != tssa::Assign) return nullptr;
+        auto output = node->output(0);
+        for (auto &use : output->uses()) {
+            if (use.user->kind() == tssa::Update) return nullptr;
+        }
+        auto prevNode = node->prev();
+        output->replaceAllUsesWith(node->input(1));
+        node->destroy();
+        return prevNode;
+    });
 }
 
 }  // namespace jit
