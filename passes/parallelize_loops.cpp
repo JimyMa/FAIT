@@ -5,7 +5,7 @@
 namespace c10 {
 namespace prim {
 
-auto ParallelLoop = Symbol::prim("ParallelLoop");
+Symbol ParallelLoop = Symbol::prim("ParallelLoop");
 
 }
 }  // namespace c10
