@@ -88,11 +88,13 @@ class YOLOAnchorGenerator(torch.nn.Module):
                                  level_idx: int,
                                  dtype: torch.dtype,
                                  device: torch.device):
-        base_anchors = self.base_anchors[level_idx].to(device).to(dtype)
+        base_anchors = self.base_anchors[level_idx].to(device, dtype)
         feat_h, feat_w = featmap_size
         stride_w, stride_h = self.strides[level_idx]
-        shift_x = torch.arange(0, feat_w, device=device).to(dtype) * stride_w
-        shift_y = torch.arange(0, feat_h, device=device).to(dtype) * stride_h
+        shift_x = torch.arange(0, feat_w, dtype=dtype,
+                               device=device) * stride_w
+        shift_y = torch.arange(0, feat_h, dtype=dtype,
+                               device=device) * stride_h
 
         shift_xx, shift_yy = self._meshgrid(shift_x, shift_y)
         shifts = torch.stack([shift_xx, shift_yy, shift_xx, shift_yy], dim=-1)
