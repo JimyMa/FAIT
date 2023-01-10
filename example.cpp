@@ -2,6 +2,7 @@
 #include <torchvision/vision.h>
 
 #include "passes/freeze_module.h"
+#include "passes/fuse_ops.h"
 #include "passes/parallelize_loops.h"
 #include "passes/tensor_ssa.h"
 
@@ -24,7 +25,8 @@ int main(int argc, const char *argv[]) {
     }
     Freeze(&mod);
     auto graph = mod.get_method("forward").graph();
-    graph->dump();
     ToTensorSSA(graph);
+    graph->dump();
+    FuseOps(graph);
     graph->dump();
 }
