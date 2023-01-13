@@ -1,6 +1,7 @@
 #include <torch/csrc/jit/serialization/import.h>
 #include <torchvision/vision.h>
 
+#include "passes/common_passes.h"
 #include "passes/freeze_module.h"
 #include "passes/fuse_ops.h"
 #include "passes/parallelize_loops.h"
@@ -23,10 +24,16 @@ int main(int argc, const char *argv[]) {
         std::cerr << e.what();
         return 1;
     }
-    Freeze(&mod);
-    auto graph = mod.get_method("forward").graph();
-    ToTensorSSA(graph);
-    graph->print(std::ofstream("after_tssa.rb"));
-    FuseOps(graph);
-    graph->print(std::ofstream("after_fuse.rb"));
+    try {
+        Freeze(&mod);
+        auto graph = mod.get_method("forward").graph();
+        ToTensorSSA(graph);
+        graph->print(std::ofstream("after_tssa.rb"));
+        HoistLoopInvariants(graph);
+        graph->print(std::ofstream("after_licm.rb"));
+        FuseOps(graph);
+        graph->print(std::ofstream("after_fuse.rb"));
+    } catch (c10::Error &err) {
+        std::cout << err.what();
+    }
 }

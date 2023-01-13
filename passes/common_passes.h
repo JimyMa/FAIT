@@ -9,5 +9,9 @@ namespace jit {
 /// @param graph The graph to be optimized.
 void EliminateDeadCodeTSSA(const std::shared_ptr<Graph> &graph);
 
+/// @brief Move computation of loop invariants out of loop body
+/// @param graph The graph to be optimized.
+void HoistLoopInvariants(const std::shared_ptr<Graph> &graph);
+
 }  // namespace jit
 }  // namespace torch
