@@ -332,7 +332,7 @@ static void fuseOpsIn(Block *block, Graph *graph) {
 void FuseOps(const std::shared_ptr<Graph> &graph) {
     // Add TensorSSA symbols to records
     addTssaSymbols();
-    printFusableOps();
+    // printFusableOps();
 
     // Collect all blocks
     std::vector<Block *> blocks;
