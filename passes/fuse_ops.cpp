@@ -105,8 +105,7 @@ static std::unordered_set<Symbol> fusableNoOpSymbols{prim::ListConstruct};
 static std::unordered_map<Symbol, bool (*)(Node *node)> fusabilityCheckers{
     {aten::__getitem__,
      [](Node *node) {
-         auto listTy = node->input(0)->type()->castRaw<ListType>();
-         return !listTy->getElementType()->castRaw<TensorType>();
+         return node->owningBlock() == node->input(0)->node()->owningBlock();
      }},
 };
 
