@@ -131,7 +131,7 @@ static bool isFusable(Node *node, bool isOut) {
     for (auto input : node->inputs()) {
         if (isMutated(input)) return false;
     }
-    for (auto output : node->inputs()) {
+    for (auto output : node->outputs()) {
         if (isMutated(output)) return false;
     }
 
