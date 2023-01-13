@@ -25,9 +25,10 @@ static bool producesLoopInvariants(Node *node, Block *body) {
 
 static void hoistInvariantsOf(Node *loop, Graph *graph) {
     auto body = loop->blocks()[0];
-    for (auto node = body->nodes().front(); node != body->nodes().back();
-         node = node->next()) {
+    for (auto iter = body->nodes().begin(); iter != body->nodes().end();
+         ++iter) {
         // Decide whether the node produces loop invariants
+        auto node = *iter;
         if (!producesLoopInvariants(node, body)) continue;
 
         // Create and insert hoisted node
@@ -37,9 +38,7 @@ static void hoistInvariantsOf(Node *loop, Graph *graph) {
 
         // Remove original node
         node->replaceAllUsesWith(hoistedNode);
-        auto prevNode = node->prev();
-        node->destroy();
-        node = prevNode;
+        iter.destroyCurrent();
     }
 }
 
