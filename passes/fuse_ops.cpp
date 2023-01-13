@@ -108,10 +108,6 @@ static std::unordered_map<Symbol, bool (*)(Node *node)> fusabilityCheckers{
          auto listTy = node->input(0)->type()->castRaw<ListType>();
          return !listTy->getElementType()->castRaw<TensorType>();
      }},
-    {prim::ListConstruct,
-     [](Node *node) { return !isMutated(node->output(0)); }},
-    {aten::cat, [](Node *node) { return !isMutated(node->input(0)); }},
-    {aten::stack, [](Node *node) { return !isMutated(node->input(0)); }},
 };
 
 static void printFusableOps() {
@@ -129,6 +125,14 @@ static bool isFusable(Node *node, bool isOut) {
         if (!node->isMemberOf(fusableOps)) return false;
     } else {
         if (!fusableNoOpSymbols.count(kind)) return false;
+    }
+
+    // Do not fuse nodes with mutated inputs or outputs
+    for (auto input : node->inputs()) {
+        if (isMutated(input)) return false;
+    }
+    for (auto output : node->inputs()) {
+        if (isMutated(output)) return false;
     }
 
     if (isOut) {
