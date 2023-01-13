@@ -3,11 +3,21 @@
 namespace torch {
 namespace jit {
 
-bool traverse(Block *block, const std::function<bool(Node *)> &visitor) {
+bool traversePreOrder(Block *block, const std::function<bool(Node *)> &visitor) {
     for (auto node : block->nodes()) {
         if (!visitor(node)) return false;
         for (auto nested : node->blocks())
-            if (!traverse(nested, visitor)) return false;
+            if (!traversePreOrder(nested, visitor)) return false;
+    }
+    return true;
+}
+
+bool traversePostOrder(Block *block,
+                       const std::function<bool(Node *)> &visitor) {
+    for (auto node : block->nodes()) {
+        for (auto nested : node->blocks())
+            if (!traversePostOrder(nested, visitor)) return false;
+        if (!visitor(node)) return false;
     }
     return true;
 }

@@ -21,7 +21,7 @@ namespace torch {
 namespace jit {
 
 static Node *rewriteMutating(
-    Node *node, Graph *graph, DisjointSet<Value *> &aliasSets,
+    Node *node, Graph *graph, DisjointSets<Value *> &aliasSets,
     std::vector<Value *> &mutValues,
     std::unordered_map<Value *, std::vector<Node *>> &mutNodes) {
     // Replace mutating operations with non-mutating ones
@@ -192,7 +192,7 @@ static void renameValues(
 
 void ToTensorSSA(const std::shared_ptr<Graph> &graph) {
     // Find all mutated tensors and remove mutation
-    DisjointSet<Value *> aliasSets;
+    DisjointSets<Value *> aliasSets;
     std::vector<Value *> mutValues;
     std::unordered_map<Value *, std::vector<Node *>> mutNodes;
     rewrite(graph->block(), [&](Node *node) -> Node * {

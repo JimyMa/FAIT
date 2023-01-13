@@ -3,11 +3,18 @@
 #include "passes/tensor_ssa.h"
 #include "util/disjoint_set.h"
 #include "util/ir.h"
+#include "util/traits.h"
 
 namespace torch {
 namespace jit {
 
 OperatorSet fusableOps{
+    "aten::tensor.float(float t, *, ScalarType? dtype=None, Device? "
+    "device=None, bool requires_grad=False) -> Tensor",
+    "aten::tensor.int(int t, *, ScalarType? dtype=None, Device? device=None, "
+    "bool requires_grad=False) -> Tensor",
+    "aten::tensor.bool(bool t, *, ScalarType? dtype=None, Device? device=None, "
+    "bool requires_grad=False) -> Tensor",
     "aten::arange(Scalar end, *, ScalarType? dtype=None, Layout? layout=None, "
     "Device? device=None, bool? pin_memory=None) -> Tensor",
     "aten::arange.start(Scalar start, Scalar end, *, ScalarType? dtype=None, "
@@ -16,6 +23,19 @@ OperatorSet fusableOps{
     "aten::arange.start_step(Scalar start, Scalar end, Scalar step=1, *, "
     "ScalarType? dtype=None, Layout? layout=None, Device? device=None, bool? "
     "pin_memory=None) -> Tensor",
+    "aten::to.device(Tensor(a) self, Device device, ScalarType dtype, bool "
+    "non_blocking=False, bool copy=False, MemoryFormat? memory_format=None) -> "
+    "Tensor(a)",
+    "aten::to.dtype(Tensor(a) self, ScalarType dtype, bool non_blocking=False, "
+    "bool copy=False, MemoryFormat? memory_format=None) -> Tensor(a)",
+    "aten::to.other(Tensor(a) self, Tensor other, bool non_blocking=False, "
+    "bool copy=False, MemoryFormat? memory_format=None) -> Tensor(a)",
+    "aten::to.prim_Device(Tensor(a) self, Device? device, int? dtype=None, "
+    "bool non_blocking=False, bool copy=False) -> Tensor(a|b)",
+    "aten::to.prim_dtype(Tensor(a) self, int? dtype=None, bool "
+    "non_blocking=False, bool copy=False) -> Tensor(a|b)",
+    "aten::to.prim_other(Tensor(a) self, bool non_blocking=False, bool "
+    "copy=False) -> Tensor(a|b)",
     "aten::exp(Tensor self) -> Tensor",
     "aten::log(Tensor self) -> Tensor",
     "aten::sin(Tensor self) -> Tensor",
@@ -30,6 +50,16 @@ OperatorSet fusableOps{
     "aten::mul.Scalar(Tensor self, Scalar other) -> Tensor",
     "aten::div.Tensor(Tensor self, Tensor other) -> Tensor",
     "aten::div.Scalar(Tensor self, Scalar other) -> Tensor",
+    "aten::eq.Tensor(Tensor self, Tensor other) -> Tensor",
+    "aten::eq.Scalar(Tensor self, Scalar other) -> Tensor",
+    "aten::ne.Tensor(Tensor self, Tensor other) -> Tensor",
+    "aten::ne.Scalar(Tensor self, Scalar other) -> Tensor",
+    "aten::lt.Tensor(Tensor self, Tensor other) -> Tensor",
+    "aten::lt.Scalar(Tensor self, Scalar other) -> Tensor",
+    "aten::gt.Tensor(Tensor self, Tensor other) -> Tensor",
+    "aten::gt.Scalar(Tensor self, Scalar other) -> Tensor",
+    "aten::ge.Tensor(Tensor self, Tensor other) -> Tensor",
+    "aten::ge.Scalar(Tensor self, Scalar other) -> Tensor",
     "aten::minimum(Tensor self, Tensor other) -> Tensor",
     "aten::maximum(Tensor self, Tensor other) -> Tensor",
     "aten::select.int(Tensor(a) self, int dim, int index) -> Tensor(a)",
@@ -42,30 +72,35 @@ OperatorSet fusableOps{
     "aten::view(Tensor(a) self, SymInt[] size) -> Tensor(a)",
     "aten::expand(Tensor(a) self, SymInt[] size, *, bool implicit=False) -> "
     "Tensor(a)",
+    "aten::expand_as(Tensor(a) self, Tensor other) -> Tensor(a)",
     "aten::permute(Tensor(a) self, int[] dims) -> Tensor(a)",
-    "aten::concat(Tensor[] tensors, int dim=0) -> Tensor",
+    "aten::cat(Tensor[] tensors, int dim=0) -> Tensor",
     "aten::stack(Tensor[] tensors, int dim=0) -> Tensor",
     "aten::repeat(Tensor self, SymInt[] repeats) -> Tensor",
     "aten::size.int(Tensor self, int dim) -> int",
     "aten::size(Tensor self) -> int[]",
-    "aten::__getitem__.t(t[](a) list, int idx) -> t(*)"};
+    "aten::__getitem__.t(t[](a) list, int idx) -> t(*)",
+    "prim::device(Tensor a) -> Device",
+};
 
-static std::vector<Symbol> fusableAtenSymbols{
+static std::vector<Symbol> fusableOpSymbols{
     // Tensor creation
-    aten::arange,
+    aten::tensor, aten::arange, aten::to,
     // Elementwise
     aten::exp, aten::log, aten::sin, aten::cos, aten::sqrt, aten::sigmoid,
     // Binary
     aten::add, aten::sub, aten::mul, aten::div, aten::minimum, aten::maximum,
+    // Comparison
+    aten::eq, aten::ne, aten::lt, aten::le, aten::gt, aten::ge,
     // View
     aten::select, aten::slice, aten::squeeze, aten::unsqueeze, aten::reshape,
-    aten::view, aten::expand, aten::permute,
+    aten::view, aten::expand, aten::expand_as, aten::permute,
     // Copy
-    aten::repeat, aten::concat, aten::stack,
+    aten::repeat, aten::cat, aten::stack,
     // Auxiliary
-    aten::size, aten::__getitem__};
+    aten::size, aten::__getitem__, prim::device};
 
-static std::unordered_set<Symbol> fusablePrimSymbols{prim::ListConstruct};
+static std::unordered_set<Symbol> fusableNoOpSymbols{prim::ListConstruct};
 
 static std::unordered_map<Symbol, bool (*)(Node *node)> fusabilityCheckers{
     {aten::__getitem__,
@@ -73,23 +108,42 @@ static std::unordered_map<Symbol, bool (*)(Node *node)> fusabilityCheckers{
          auto listTy = node->input(0)->type()->castRaw<ListType>();
          return !listTy->getElementType()->castRaw<TensorType>();
      }},
+    {prim::ListConstruct,
+     [](Node *node) { return !isMutated(node->output(0)); }},
+    {aten::cat, [](Node *node) { return !isMutated(node->input(0)); }},
+    {aten::stack, [](Node *node) { return !isMutated(node->input(0)); }},
 };
 
 static void printFusableOps() {
-    for (auto sym : fusableAtenSymbols) {
+    for (auto sym : fusableOpSymbols) {
         for (auto &op : getAllOperatorsFor(sym))
             std::cout << '"' << op->schema() << "\",\n";
     }
 }
 
-static bool isFusable(Node *node) {
+static bool isFusable(Node *node, bool isOut) {
     // Check if the symbol is fusable
     auto kind = node->kind();
     auto op = node->maybeOperator();
     if (op) {
         if (!node->isMemberOf(fusableOps)) return false;
     } else {
-        if (!fusablePrimSymbols.count(kind)) return false;
+        if (!fusableNoOpSymbols.count(kind)) return false;
+    }
+
+    if (isOut) {
+        // Fused subgraphs cannot have non-tensor outputs
+        for (auto output : node->outputs()) {
+            if (!output->type()->castRaw<TensorType>()) return false;
+        }
+    } else {
+        // Do not fuse intermediates nodes with uses not in this block
+        auto block = node->owningBlock();
+        for (auto output : node->outputs()) {
+            for (auto &use : output->uses()) {
+                if (use.user->owningBlock() != block) return false;
+            }
+        }
     }
 
     // Perform addtional checking
@@ -101,16 +155,16 @@ static bool isFusable(Node *node) {
 
 static std::unordered_set<Symbol> workingSymbols{
     // Tensor creation
-    aten::arange,
+    aten::arange, aten::to,
     // Elementwise
     aten::exp, aten::log, aten::sin, aten::cos, aten::sqrt, aten::sigmoid,
     // Binary
     aten::add, aten::sub, aten::mul, aten::div, aten::minimum, aten::maximum,
     // Copy
-    aten::repeat, aten::concat, aten::stack};
+    aten::repeat, aten::cat, aten::stack};
 
 void addTssaSymbols() {
-    fusablePrimSymbols.insert({tssa::Assign, tssa::Update});
+    fusableNoOpSymbols.insert({tssa::Assign, tssa::Update});
     workingSymbols.insert(tssa::Assign);
     fusabilityCheckers.insert({tssa::Assign, [](Node *node) {
                                    return node->input(0)->node()->kind() !=
@@ -123,10 +177,9 @@ static bool shouldFuse(const std::vector<Node *> group) {
     if (group.size() == 1) return false;
 
     // Reject group that has no working symbols
-    if (std::none_of(group.begin(), group.end(), [](Node *node) {
-            return workingSymbols.count(node->kind());
-        }))
-        return false;
+    auto nWorkNodes = 0u;
+    for (auto node : group) nWorkNodes += workingSymbols.count(node->kind());
+    if (nWorkNodes < 2) return false;
 
     return true;
 }
@@ -172,61 +225,65 @@ static bool compareNodePosition(Node *lhs, Node *rhs) {
     return lhs->isBefore(rhs);
 }
 
-static void moveBeforeRecursively(Node *node, Node *pivot) {
-    if (node->owningBlock() != pivot->owningBlock()) return;
-    if (node->isBefore(pivot)) return;
-    for (auto input : node->inputs()) {
-        moveBeforeRecursively(input->node(), pivot);
-        node->moveBefore(pivot);
-    }
-}
-
-static void commitFusion(std::vector<Node *> &&group, Graph *graph) {
+static void commitFusion(std::vector<Node *> &&group, Block *block,
+                         Graph *graph) {
     // Collect input and output values from the nodes in the group
     std::vector<Value *> inputs, outputs;
     findGroupInOutValues(group, inputs, outputs);
 
-    // Move all nodes whose values are used by the fusion group before the front
-    // of this group
-    auto frontNode = group.front();
-    for (auto node : group) {
-        for (auto input : node->inputs()) {
-            // constants need special care, as they are not considered inputs of
-            // the group
-            auto defNode = input->node();
-            if (defNode->kind() == prim::Constant &&
-                defNode->isAfter(frontNode))
-                defNode->moveBefore(frontNode);
-        }
+    // Find the correct place to insert this node
+    auto lastInputDef = block->param_node();
+    for (auto input : inputs) {
+        auto defNode = input->node();
+        if (defNode->owningBlock() != block) continue;
+        if (defNode->isAfter(lastInputDef)) lastInputDef = defNode;
     }
-    for (auto input : inputs) moveBeforeRecursively(input->node(), frontNode);
 
     // Create fusion node
     auto fusionNode = graph->create(prim::FusionGroup, inputs, outputs.size());
-    fusionNode->insertBefore(frontNode);
-    auto block = fusionNode->addBlock();
+    fusionNode->insertAfter(lastInputDef);
+    auto fusionBlock = fusionNode->addBlock();
+
+    // Handle constants, as they are not considered inputs of the group
+    for (auto node : group) {
+        for (auto input : node->inputs()) {
+            auto defNode = input->node();
+            if (defNode->kind() == prim::Constant &&
+                defNode->isAfter(fusionNode))
+                defNode->moveBefore(fusionNode);
+        }
+    }
 
     // Map input values
     std::unordered_map<Value *, Value *> valueMap;
     for (auto input : inputs) {
-        auto param = block->addInput();
+        auto param = fusionBlock->addInput();
         param->setType(input->type());
         valueMap.insert({input, param});
     }
 
     // Move nodes to the new block
     for (auto node : group) {
-        node->moveBefore(block->return_node());
+        node->moveBefore(fusionBlock->return_node());
         for (auto i = 0u; i < node->inputs().size(); i++) {
             auto arg = node->input(i);
             if (valueMap.count(arg)) node->replaceInput(i, valueMap[arg]);
         }
     }
 
+    // Move uses of outputs after the fusion group
+    for (auto output : outputs) {
+        for (auto &use : output->uses()) {
+            auto user = use.user;
+            if (user->owningBlock() != block) continue;
+            if (user->isBefore(fusionNode)) user->moveAfter(fusionNode);
+        }
+    }
+
     // Handle block return and node outputs
     for (auto i = 0u; i < outputs.size(); i++) {
         auto output = outputs[i];
-        block->return_node()->addInput(output);
+        fusionBlock->return_node()->addInput(output);
         fusionNode->output(i)->setType(output->type());
         output->replaceAllUsesAfterNodeWith(fusionNode, fusionNode->output(i));
     }
@@ -234,33 +291,26 @@ static void commitFusion(std::vector<Node *> &&group, Graph *graph) {
 
 static void fuseOpsIn(Block *block, Graph *graph) {
     // Find fusable nodes and create disjoint sets for nodes
-    std::unordered_set<Node *> fusableNodeSet;
-    DisjointSet<Node *> fusionDisjSets;
-    auto checkFusable = [&](Node *node) {
-        if (fusableNodeSet.count(node)) return true;
-        if (isFusable(node)) {
-            fusableNodeSet.insert(node);
-            return true;
-        } else
-            return false;
+    DisjointSets<Node *> fusionDisjSets;
+    auto checkFusable = [&](Node *node, bool isOut) {
+        if (fusionDisjSets.contains(node)) return true;
+        return isFusable(node, isOut);
     };
     for (auto node : block->nodes().reverse()) {
         // Check fusability of this node
-        if (!checkFusable(node)) continue;
+        if (!checkFusable(node, true)) continue;
 
         // Check fusability of predecessors and possibly merge nodes
         for (auto input : node->inputs()) {
             auto pred = input->node();
             if (pred->owningBlock() != block)
                 continue;  // cannot fuse nodes outside this block
-            if (checkFusable(pred)) fusionDisjSets.merge(node, pred);
+            if (checkFusable(pred, false)) fusionDisjSets.merge(node, pred);
         }
     }
 
     // Check group fusability and commit fusion
-    std::vector<Node *> fusableNodeList(fusableNodeSet.begin(),
-                                        fusableNodeSet.end());
-    fusableNodeSet.clear();
+    auto fusableNodeList = fusionDisjSets.getAll();
     std::sort(fusableNodeList.begin(), fusableNodeList.end(),
               compareNodePosition);
     std::unordered_set<Node *> checkedNodes;
@@ -275,25 +325,25 @@ static void fuseOpsIn(Block *block, Graph *graph) {
         for (auto nodeInGroup : group) checkedNodes.insert(nodeInGroup);
 
         // Commit fusion
-        commitFusion(std::move(group), graph);
+        commitFusion(std::move(group), block, graph);
     }
 }
 
 void FuseOps(const std::shared_ptr<Graph> &graph) {
     // Add TensorSSA symbols to records
     addTssaSymbols();
+    printFusableOps();
 
     // Collect all blocks
     std::vector<Block *> blocks;
     blocks.push_back(graph->block());
-    traverse(graph->block(), [&](Node *node) {
+    traversePreOrder(graph->block(), [&](Node *node) {
         for (auto block : node->blocks()) blocks.push_back(block);
         return true;
     });
 
     // Fuse operators inside blocks
     for (auto block : blocks) fuseOpsIn(block, graph.get());
-    // printFusableOps();
 }
 
 }  // namespace jit

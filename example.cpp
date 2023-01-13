@@ -26,7 +26,7 @@ int main(int argc, const char *argv[]) {
     Freeze(&mod);
     auto graph = mod.get_method("forward").graph();
     ToTensorSSA(graph);
-    graph->dump();
+    graph->print(std::ofstream("after_tssa.rb"));
     FuseOps(graph);
-    graph->dump();
+    graph->print(std::ofstream("after_fuse.rb"));
 }

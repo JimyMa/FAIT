@@ -9,9 +9,9 @@ template <class T>
 struct DSElement;
 
 template <class T>
-class DisjointSet {
+class DisjointSets {
 public:
-    DisjointSet() = default;
+    DisjointSets() = default;
 
     void merge(const T &first, const T &second) {
         auto fstPar = findParent(getIndex(first)),
@@ -19,12 +19,20 @@ public:
         nodes[sndPar].parent = fstPar;
     }
 
+    bool contains(const T &value) { return valueToNodeIdx.count(value); }
+
     std::vector<T> getSetOf(const T &value) {
         auto tgtPar = findParent(getIndex(value));
         std::vector<T> set;
         for (auto i = 0u; i < nodes.size(); i++)
             if (findParent(i) == tgtPar) set.push_back(nodes[i].value);
         return set;
+    }
+
+    std::vector<T> getAll() {
+        std::vector<T> allValues;
+        for (auto &pair : valueToNodeIdx) allValues.push_back(pair.first);
+        return allValues;
     }
 
 private:
