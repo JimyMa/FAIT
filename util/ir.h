@@ -32,13 +32,22 @@ inline void replace(Node *oldNode, Node *newNode) {
 }
 
 /// @brief Rewrite nodes in a block with a given pattern recursively in
-/// pre-order. Note that the actual rewrite should be done by the user, and this
-/// function will NOT mutates the IR.
+/// post-order. Note that the actual rewrite should be done by the user, and
+/// this function will NOT mutates the IR.
 /// @param block The block to be rewritten.
 /// @param pattern The rewrite pattern, which returns a new node if the rewrite
 /// is successfully applied and the following traversal should begin right after
 /// this node, and nullptr otherwise.
 void rewrite(Block *block, const std::function<Node *(Node *)> &pattern);
+
+/// @brief Remove the node, and return the one right before it.
+/// @param node The node to be removed.
+/// @return The node right before the removed one.
+inline Node *remove(Node *node) {
+    auto prev = node->prev();
+    node->destroy();
+    return prev;
+}
 
 }  // namespace jit
 }  // namespace torch

@@ -30,7 +30,8 @@ int main(int argc, const char *argv[]) {
         ToTensorSSA(graph);
         graph->print(std::ofstream("after_tssa.rb"));
         HoistLoopInvariants(graph);
-        graph->print(std::ofstream("after_licm.rb"));
+        EliminateCommonSubexprTSSA(graph);
+        graph->print(std::ofstream("after_cse.rb"));
         FuseOps(graph);
         graph->print(std::ofstream("after_fuse.rb"));
     } catch (c10::Error &err) {

@@ -245,10 +245,8 @@ void ToTensorSSA(const std::shared_ptr<Graph> &graph) {
         for (auto &use : output->uses()) {
             if (use.user->kind() == tssa::Update) return nullptr;
         }
-        auto prevNode = node->prev();
         output->replaceAllUsesWith(node->input(1));
-        node->destroy();
-        return prevNode;
+        return remove(node);
     });
 }
 
