@@ -34,6 +34,8 @@ int main(int argc, const char *argv[]) {
         graph->print(std::ofstream("after_cse.rb"));
         FuseOps(graph);
         graph->print(std::ofstream("after_fuse.rb"));
+        ParallelizeLoops(graph);
+        graph->print(std::ofstream("after_par.rb"));
     } catch (c10::Error &err) {
         std::cout << err.what();
     }

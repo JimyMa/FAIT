@@ -137,15 +137,9 @@ def multiclass_nms(multi_bboxes: torch.Tensor,
     inds = valid_mask.nonzero().squeeze(1)
     bboxes, scores, labels = bboxes[inds], scores[inds], labels[inds]
 
-    if bboxes.numel() == 0:
-        dets = torch.cat([bboxes, scores[:, None]], -1)
-        return dets, labels
-
     dets, keep = batched_nms(bboxes, scores, labels)
-
-    if max_num > 0:
-        dets = dets[:max_num]
-        keep = keep[:max_num]
+    dets = dets[:max_num]
+    keep = keep[:max_num]
 
     return dets, labels[keep]
 

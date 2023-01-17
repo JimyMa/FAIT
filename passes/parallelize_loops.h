@@ -5,7 +5,7 @@
 namespace c10 {
 namespace prim {
 
-extern Symbol ParallelLoop;
+extern Symbol ParallelMap;
 
 }
 }  // namespace c10
