@@ -32,10 +32,12 @@ int main(int argc, const char *argv[]) {
         HoistLoopInvariants(graph);
         EliminateCommonSubexprTSSA(graph);
         graph->print(std::ofstream("after_cse.rb"));
-        FuseOps(graph);
-        graph->print(std::ofstream("after_fuse.rb"));
         ParallelizeLoops(graph);
         graph->print(std::ofstream("after_par.rb"));
+        FuseOps(graph);
+        graph->print(std::ofstream("after_fuse.rb"));
+        SplitParallelMaps(graph);
+        graph->print(std::ofstream("after_split.rb"));
     } catch (c10::Error &err) {
         std::cout << err.what();
     }

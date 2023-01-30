@@ -154,8 +154,158 @@ void ParallelizeLoops(const std::shared_ptr<Graph> &graph) {
 
     // Convert to parallel maps
     for (auto loop : loops) convertLoopToMap(loop, graph.get());
+}
 
-    return;
+static void cloneNodesToBlock(Node *begin, Node *end, Block *block,
+                              Graph *graph,
+                              std::unordered_map<Value *, Value *> &valueMap) {
+    TORCH_INTERNAL_ASSERT_DEBUG_ONLY(begin->owningBlock() ==
+                                     end->owningBlock());
+    for (auto iter = graph_node_list_iterator(begin, kNextDirection);
+         iter != graph_node_list_iterator(end, kNextDirection); ++iter) {
+        auto node = *iter;
+        auto newNode = graph->createClone(node, [&](Value *v) {
+            return valueMap.count(v) ? valueMap[v] : v;
+        });
+        block->appendNode(newNode);
+        for (auto i = 0u; i < node->outputs().size(); i++)
+            valueMap.insert({node->output(i), newNode->output(i)});
+    }
+}
+
+static void moveNodesToBlock(Node *begin, Node *end, Block *block, Graph *graph,
+                             std::unordered_map<Value *, Value *> &valueMap) {
+    cloneNodesToBlock(begin, end, block, graph, valueMap);
+    graph_node_list_iterator iterBegin(end->prev(), kPrevDirection),
+        iterEnd(begin->prev(), kPrevDirection);
+    for (auto iter = iterBegin; iter != iterEnd; ++iter) {
+        auto node = *iter;
+        if (node->hasUses()) {
+            node->dump();
+        }
+        iter.destroyCurrent();
+    }
+}
+
+static Node *splitAt(Node *prevParMap, Node *firstParMap, Node *splitNode,
+                     const std::vector<Value *> &depValues, Graph *graph) {
+    // Create new parallel map node
+    auto numMapOut = prevParMap->outputs().size();
+    auto nextParMap = graph->create(prim::ParallelMap, {}, numMapOut);
+    nextParMap->insertAfter(prevParMap);
+
+    // Transfer outputs of the map
+    for (auto i = 0u; i < numMapOut; i++) {
+        auto prevMapOut = prevParMap->output(i),
+             nextMapOut = nextParMap->output(i);
+        nextMapOut->setType(prevMapOut->type());
+        prevMapOut->replaceAllUsesWith(nextMapOut);
+    }
+
+    // Reset outputs of previous map
+    prevParMap->removeAllOutputs();
+    std::vector<Value *> prevMapOutputs;
+    for (auto dep : depValues) {
+        auto prevMapOut = prevParMap->addOutput();
+        prevMapOut->setType(ListType::create(dep->type()));
+        prevMapOutputs.push_back(prevMapOut);
+    }
+
+    // Reset block output of the previous map
+    auto prevBlock = prevParMap->blocks().front();
+    auto origBlockRets = prevBlock->outputs().vec();
+    prevBlock->removeAllOutputs();
+    for (auto dep : depValues)
+        prevBlock->insertOutput(prevBlock->outputs().size(), dep);
+
+    // Add inputs to the next map
+    for (auto firstMapIn : firstParMap->inputs())
+        nextParMap->addInput(firstMapIn);
+    for (auto prevMapOut : prevMapOutputs) nextParMap->addInput(prevMapOut);
+
+    // Add block parameters to the next map
+    std::unordered_map<Value *, Value *> valueMap;
+    auto nextBlock = nextParMap->addBlock();
+    for (auto firstBlockParam : firstParMap->inputs()) {
+        auto nextBlockParam = nextBlock->addInput();
+        nextBlockParam->setType(firstBlockParam->type());
+        valueMap.insert({firstBlockParam, nextBlockParam});
+    }
+    for (auto dep : depValues) {
+        auto nextBlockParam = nextBlock->addInput();
+        nextBlockParam->setType(dep->type());
+        valueMap.insert({dep, nextBlockParam});
+    }
+
+    // Move nodes beginning from the split point to the new map
+    moveNodesToBlock(splitNode, prevBlock->return_node(), nextBlock, graph,
+                     valueMap);
+
+    // Add block return to the new map
+    for (auto ret : origBlockRets)
+        nextBlock->insertOutput(nextBlock->outputs().size(), valueMap.at(ret));
+
+    return nextParMap;
+}
+
+static void splitParallelMap(Node *firstParMap, Graph *graph) {
+    // Find fusion group and split parallel map
+    auto curParMap = firstParMap;
+    auto mapBlock = curParMap->blocks().front();
+    for (auto node = mapBlock->nodes().front(); node != mapBlock->return_node();
+         node = node->next()) {
+        // Check if the node is a fusion group
+        if (node->kind() != prim::FusionGroup) continue;
+
+        // Split before the group
+        if (node->prev()->kind() != prim::Param) {
+            // Collect values this group depends in addition to parameters of
+            // the map
+            std::vector<Value *> groupDeps;
+            for (auto input : node->inputs()) {
+                if (input->node()->kind() == prim::Param) continue;
+                if (input->node()->owningBlock() != mapBlock) continue;
+                groupDeps.push_back(input);
+            }
+
+            // Split the parallel map
+            auto nextParMap =
+                splitAt(curParMap, firstParMap, node, groupDeps, graph);
+
+            // Update block and node pointers
+            curParMap = nextParMap;
+            mapBlock = curParMap->blocks().front();
+            node = mapBlock->param_node()->next();
+        }
+
+        // Split after the group
+        if (node->next()->kind() != prim::Return) {
+            // Collect all values this group outputs
+            TORCH_INTERNAL_ASSERT_DEBUG_ONLY(node->kind() == prim::FusionGroup);
+            auto groupOutputs = node->outputs().vec();
+
+            // Split the group
+            auto nextParMap = splitAt(curParMap, firstParMap, node->next(),
+                                      groupOutputs, graph);
+
+            // Update block and node pointers
+            curParMap = nextParMap;
+            mapBlock = curParMap->blocks().front();
+            node = mapBlock->param_node();
+        }
+    }
+}
+
+void SplitParallelMaps(const std::shared_ptr<Graph> &graph) {
+    // Find all parallel maps
+    std::vector<Node *> parMaps;
+    traversePostOrder(graph->block(), [&](Node *node) {
+        if (node->kind() == prim::ParallelMap) parMaps.push_back(node);
+        return true;
+    });
+
+    // Split parallel maps for fusion groups
+    for (auto parMap : parMaps) splitParallelMap(parMap, graph.get());
 }
 
 }  // namespace jit
