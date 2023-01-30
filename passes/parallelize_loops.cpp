@@ -96,7 +96,10 @@ void convertLoopToMap(Node *loop, Graph *graph) {
     }
 
     // Create map node
-    auto mapNode = graph->create(prim::ParallelMap, inLists, outLists.size());
+    auto mapArgs = std::move(inLists);
+    mapArgs.insert(mapArgs.begin(), loop->input(0));
+    auto mapNode = graph->create(prim::ParallelMap, mapArgs, outLists.size());
+    mapNode->setSourceRange(loop->sourceRange());
     mapNode->insertAfter(loop);
     auto mapBlock = mapNode->addBlock();
     mapBlock->cloneFrom(body, [](Value *v) { return v; });
