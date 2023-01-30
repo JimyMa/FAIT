@@ -81,6 +81,7 @@ OperatorSet fusableOps{
     "aten::size(Tensor self) -> int[]",
     "aten::__getitem__.t(t[](a) list, int idx) -> t(*)",
     "prim::device(Tensor a) -> Device",
+    "prim::TupleUnpack(Any tup) -> ...",
 };
 
 static std::vector<Symbol> fusableOpSymbols{
@@ -98,9 +99,10 @@ static std::vector<Symbol> fusableOpSymbols{
     // Copy
     aten::repeat, aten::cat, aten::stack,
     // Auxiliary
-    aten::size, aten::__getitem__, prim::device};
+    aten::size, aten::__getitem__, prim::device, prim::TupleUnpack};
 
-static std::unordered_set<Symbol> fusableNoOpSymbols{prim::ListConstruct};
+static std::unordered_set<Symbol> fusableNoOpSymbols{prim::ListConstruct,
+                                                     prim::ListUnpack};
 
 static std::unordered_map<Symbol, bool (*)(Node *node)> fusabilityCheckers{
     {aten::__getitem__,
