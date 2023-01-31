@@ -156,37 +156,6 @@ void ParallelizeLoops(const std::shared_ptr<Graph> &graph) {
     for (auto loop : loops) convertLoopToMap(loop, graph.get());
 }
 
-static void cloneNodesToBlock(Node *begin, Node *end, Block *block,
-                              Graph *graph,
-                              std::unordered_map<Value *, Value *> &valueMap) {
-    TORCH_INTERNAL_ASSERT_DEBUG_ONLY(begin->owningBlock() ==
-                                     end->owningBlock());
-    for (auto iter = graph_node_list_iterator(begin, kNextDirection);
-         iter != graph_node_list_iterator(end, kNextDirection); ++iter) {
-        auto node = *iter;
-        auto newNode = graph->createClone(node, [&](Value *v) {
-            return valueMap.count(v) ? valueMap[v] : v;
-        });
-        block->appendNode(newNode);
-        for (auto i = 0u; i < node->outputs().size(); i++)
-            valueMap.insert({node->output(i), newNode->output(i)});
-    }
-}
-
-static void moveNodesToBlock(Node *begin, Node *end, Block *block, Graph *graph,
-                             std::unordered_map<Value *, Value *> &valueMap) {
-    cloneNodesToBlock(begin, end, block, graph, valueMap);
-    graph_node_list_iterator iterBegin(end->prev(), kPrevDirection),
-        iterEnd(begin->prev(), kPrevDirection);
-    for (auto iter = iterBegin; iter != iterEnd; ++iter) {
-        auto node = *iter;
-        if (node->hasUses()) {
-            node->dump();
-        }
-        iter.destroyCurrent();
-    }
-}
-
 static Node *splitAt(Node *prevParMap, Node *firstParMap, Node *splitNode,
                      const std::vector<Value *> &depValues, Graph *graph) {
     // Create new parallel map node

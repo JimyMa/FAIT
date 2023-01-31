@@ -49,5 +49,28 @@ inline Node *remove(Node *node) {
     return prev;
 }
 
+/// @brief Clone the nodes in range [`begin`, `end`) to the end of the new
+/// block.
+/// @param begin The beginning of the node range (inclusive).
+/// @param end The end of the node range (exclusive). Must be in the same block
+/// as `begin` and be after `begin` topologically.
+/// @param block The new block to clone nodes to.
+/// @param graph The graph that owns the block.
+/// @param valueMap Mappings from the value in the original block to the ones in
+/// the new block.
+void cloneNodesToBlock(Node *begin, Node *end, Block *block, Graph *graph,
+                       std::unordered_map<Value *, Value *> &valueMap);
+
+/// @brief Move the nodes in range [`begin`, `end`) to the end of the new block.
+/// @param begin The beginning of the node range (inclusive).
+/// @param end The end of the node range (exclusive). Must be in the same block
+/// as `begin` and be after `begin` topologically.
+/// @param block The new block to clone nodes to.
+/// @param graph The graph that owns the block.
+/// @param valueMap Mappings from the value in the original block to the ones in
+/// the new block.
+void moveNodesToBlock(Node *begin, Node *end, Block *block, Graph *graph,
+                      std::unordered_map<Value *, Value *> &valueMap);
+
 }  // namespace jit
 }  // namespace torch

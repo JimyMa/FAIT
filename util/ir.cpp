@@ -32,5 +32,30 @@ void rewrite(Block *block, const std::function<Node *(Node *)> &pattern) {
     }
 }
 
+void cloneNodesToBlock(Node *begin, Node *end, Block *block, Graph *graph,
+                       std::unordered_map<Value *, Value *> &valueMap) {
+    TORCH_INTERNAL_ASSERT_DEBUG_ONLY(begin->owningBlock() ==
+                                     end->owningBlock());
+    TORCH_INTERNAL_ASSERT_DEBUG_ONLY(begin->isBefore(end));
+    for (auto iter = graph_node_list_iterator(begin, kNextDirection);
+         iter != graph_node_list_iterator(end, kNextDirection); ++iter) {
+        auto node = *iter;
+        auto newNode = graph->createClone(node, [&](Value *v) {
+            return valueMap.count(v) ? valueMap[v] : v;
+        });
+        block->appendNode(newNode);
+        for (auto i = 0u; i < node->outputs().size(); i++)
+            valueMap.insert({node->output(i), newNode->output(i)});
+    }
+}
+
+void moveNodesToBlock(Node *begin, Node *end, Block *block, Graph *graph,
+                      std::unordered_map<Value *, Value *> &valueMap) {
+    cloneNodesToBlock(begin, end, block, graph, valueMap);
+    graph_node_list_iterator iterBegin(end->prev(), kPrevDirection),
+        iterEnd(begin->prev(), kPrevDirection);
+    for (auto iter = iterBegin; iter != iterEnd; ++iter) iter.destroyCurrent();
+}
+
 }  // namespace jit
 }  // namespace torch
