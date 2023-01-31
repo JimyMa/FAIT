@@ -15,6 +15,8 @@ OperatorSet fusableOps{
     "bool requires_grad=False) -> Tensor",
     "aten::tensor.bool(bool t, *, ScalarType? dtype=None, Device? device=None, "
     "bool requires_grad=False) -> Tensor",
+    "aten::tensor(t[] data, *, ScalarType? dtype=None, Device? device=None, "
+    "bool requires_grad=False) -> Tensor",
     "aten::arange(Scalar end, *, ScalarType? dtype=None, Layout? layout=None, "
     "Device? device=None, bool? pin_memory=None) -> Tensor",
     "aten::arange.start(Scalar start, Scalar end, *, ScalarType? dtype=None, "
@@ -42,6 +44,9 @@ OperatorSet fusableOps{
     "aten::cos(Tensor self) -> Tensor",
     "aten::sqrt(Tensor self) -> Tensor",
     "aten::sigmoid(Tensor self) -> Tensor",
+    "aten::clamp(Tensor self, Scalar? min=None, Scalar? max=None) -> Tensor",
+    "aten::clamp.Tensor(Tensor self, Tensor? min=None, Tensor? max=None) -> "
+    "Tensor",
     "aten::add.Tensor(Tensor self, Tensor other, *, Scalar alpha=1) -> Tensor",
     "aten::add.Scalar(Tensor self, Scalar other, Scalar alpha=1) -> Tensor",
     "aten::sub.Tensor(Tensor self, Tensor other, *, Scalar alpha=1) -> Tensor",
@@ -80,6 +85,7 @@ OperatorSet fusableOps{
     "aten::size.int(Tensor self, int dim) -> int",
     "aten::size(Tensor self) -> int[]",
     "aten::__getitem__.t(t[](a) list, int idx) -> t(*)",
+    "prim::dtype(Tensor a) -> int",
     "prim::device(Tensor a) -> Device",
     "prim::TupleUnpack(Any tup) -> ...",
 };
@@ -89,6 +95,7 @@ static std::vector<Symbol> fusableOpSymbols{
     aten::tensor, aten::arange, aten::to,
     // Elementwise
     aten::exp, aten::log, aten::sin, aten::cos, aten::sqrt, aten::sigmoid,
+    aten::clamp,
     // Binary
     aten::add, aten::sub, aten::mul, aten::div, aten::minimum, aten::maximum,
     // Comparison
@@ -99,7 +106,8 @@ static std::vector<Symbol> fusableOpSymbols{
     // Copy
     aten::repeat, aten::cat, aten::stack,
     // Auxiliary
-    aten::size, aten::__getitem__, prim::device, prim::TupleUnpack};
+    aten::size, aten::__getitem__, prim::dtype, prim::device,
+    prim::TupleUnpack};
 
 static std::unordered_set<Symbol> fusableNoOpSymbols{prim::ListConstruct,
                                                      prim::ListUnpack};

@@ -280,9 +280,6 @@ class SSDBBox(torch.nn.Module):
         mlvl_bboxes = torch.cat(mlvl_bboxes)
         mlvl_scores = torch.cat(mlvl_scores)
         mlvl_labels = torch.cat(mlvl_labels)
-        if mlvl_bboxes.numel() == 0:
-            det_bboxes = torch.cat([mlvl_bboxes, mlvl_scores[:, None]], -1)
-            return det_bboxes, mlvl_labels
 
         max_per_img = 100
         det_bboxes, keep_idxs = batched_nms(mlvl_bboxes, mlvl_scores,
