@@ -54,7 +54,10 @@ void moveNodesToBlock(Node *begin, Node *end, Block *block, Graph *graph,
     cloneNodesToBlock(begin, end, block, graph, valueMap);
     graph_node_list_iterator iterBegin(end->prev(), kPrevDirection),
         iterEnd(begin->prev(), kPrevDirection);
-    for (auto iter = iterBegin; iter != iterEnd; ++iter) iter.destroyCurrent();
+    for (auto iter = iterBegin; iter != iterEnd; ++iter) {
+        TORCH_INTERNAL_ASSERT_DEBUG_ONLY(!(*iter)->hasUses());
+        iter.destroyCurrent();
+    }
 }
 
 }  // namespace jit

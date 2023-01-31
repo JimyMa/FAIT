@@ -146,61 +146,85 @@ void ParallelizeLoops(const std::shared_ptr<Graph> &graph) {
 }
 
 static Node *splitAt(Node *prevParMap, Node *firstParMap, Node *splitNode,
-                     const std::vector<Value *> &depValues, Graph *graph) {
+                     Graph *graph) {
+    // Find straight returns and dependent values of previous map
+    std::unordered_set<Value *> prevStraightRets;
+    std::vector<Value *> nextDepPrevs;
+    auto prevBlock = prevParMap->blocks().front();
+    for (auto node = prevBlock->nodes().front(); node != splitNode;
+         node = node->next()) {
+        for (auto output : node->outputs()) {
+            for (auto &use : output->uses()) {
+                auto user = use.user;
+                if (user->kind() == prim::Return)
+                    prevStraightRets.insert(output);
+                else if (user == splitNode || user->isAfter(splitNode)) {
+                    if (std::find(nextDepPrevs.begin(), nextDepPrevs.end(),
+                                  output) == nextDepPrevs.end())
+                        nextDepPrevs.push_back(output);
+                }
+            }
+        }
+    }
+
     // Create new parallel map node
     auto numMapOut = prevParMap->outputs().size();
-    auto nextParMap = graph->create(prim::ParallelMap, {}, numMapOut);
+    auto nextParMap = graph->create(prim::ParallelMap, {}, 0);
     nextParMap->insertAfter(prevParMap);
-
-    // Transfer outputs of the map
-    for (auto i = 0u; i < numMapOut; i++) {
-        auto prevMapOut = prevParMap->output(i),
-             nextMapOut = nextParMap->output(i);
-        nextMapOut->setType(prevMapOut->type());
-        prevMapOut->replaceAllUsesWith(nextMapOut);
-    }
-
-    // Reset outputs of previous map
-    prevParMap->removeAllOutputs();
-    std::vector<Value *> prevMapOutputs;
-    for (auto dep : depValues) {
-        auto prevMapOut = prevParMap->addOutput();
-        prevMapOut->setType(ListType::create(dep->type()));
-        prevMapOutputs.push_back(prevMapOut);
-    }
-
-    // Reset block output of the previous map
-    auto prevBlock = prevParMap->blocks().front();
-    auto origBlockRets = prevBlock->outputs().vec();
-    prevBlock->removeAllOutputs();
-    for (auto dep : depValues)
-        prevBlock->insertOutput(prevBlock->outputs().size(), dep);
-
-    // Add inputs to the next map
-    for (auto firstMapIn : firstParMap->inputs())
-        nextParMap->addInput(firstMapIn);
-    for (auto prevMapOut : prevMapOutputs) nextParMap->addInput(prevMapOut);
-
-    // Add block parameters to the next map
-    std::unordered_map<Value *, Value *> valueMap;
     auto nextBlock = nextParMap->addBlock();
-    for (auto firstBlockParam : firstParMap->inputs()) {
-        auto nextBlockParam = nextBlock->addInput();
-        nextBlockParam->setType(firstBlockParam->type());
-        valueMap.insert({firstBlockParam, nextBlockParam});
+
+    // Add node inputs and block parameters of the first map to the next map
+    std::unordered_map<Value *, Value *> valueMap;
+    auto firstBlock = firstParMap->blocks().front();
+    for (auto i = 0u; i < firstParMap->inputs().size(); i++) {
+        auto firstIn = firstParMap->input(i),
+             firstParam = firstBlock->inputs()[i];
+        nextParMap->addInput(firstIn);
+        auto nextParam = nextBlock->addInput()->setType(firstParam->type());
+        valueMap.insert({firstParam, nextParam});
     }
-    for (auto dep : depValues) {
-        auto nextBlockParam = nextBlock->addInput();
-        nextBlockParam->setType(dep->type());
-        valueMap.insert({dep, nextBlockParam});
+
+    // Possibly move node outputs and block returns of previous map
+    std::vector<Value *> nextRets;
+    for (auto i = 0u; i < prevBlock->outputs().size();) {
+        auto prevRet = prevBlock->outputs()[i], prevOut = prevParMap->output(i);
+        if (!prevStraightRets.count(prevRet)) {
+            // move to next map
+            nextRets.push_back(prevRet);
+            auto nextOut = nextParMap->addOutput()->setType(prevOut->type());
+            prevOut->replaceAllUsesWith(nextOut);
+            prevBlock->eraseOutput(i);
+            prevParMap->eraseOutput(i);
+        } else {
+            // add to input of next map if it is used by it
+            if (std::find(nextDepPrevs.begin(), nextDepPrevs.end(), prevRet) !=
+                nextDepPrevs.end()) {
+                nextParMap->addInput(prevOut);
+                auto nextParam =
+                    nextBlock->addInput()->setType(prevRet->type());
+                valueMap.insert({prevRet, nextParam});
+            }
+            i++;  // keep return and output
+        }
+    }
+
+    // Add dependencies between previous and next maps
+    for (auto dep : nextDepPrevs) {
+        if (prevStraightRets.count(dep)) continue;
+        prevBlock->insertOutput(prevBlock->outputs().size(), dep);
+        auto prevOut =
+            prevParMap->addOutput()->setType(ListType::create(dep->type()));
+        nextParMap->addInput(prevOut);
+        auto nextParam = nextBlock->addInput()->setType(dep->type());
+        valueMap.insert({dep, nextParam});
     }
 
     // Move nodes beginning from the split point to the new map
     moveNodesToBlock(splitNode, prevBlock->return_node(), nextBlock, graph,
                      valueMap);
 
-    // Add block return to the new map
-    for (auto ret : origBlockRets)
+    // Add return values to next block
+    for (auto ret : nextRets)
         nextBlock->insertOutput(nextBlock->outputs().size(), valueMap.at(ret));
 
     return nextParMap;
@@ -217,37 +241,14 @@ static void splitParallelMap(Node *firstParMap, Graph *graph) {
 
         // Split before the group
         if (node->prev()->kind() != prim::Param) {
-            // Collect values this group depends in addition to parameters of
-            // the map
-            std::vector<Value *> groupDeps;
-            for (auto input : node->inputs()) {
-                if (input->node()->kind() == prim::Param) continue;
-                if (input->node()->owningBlock() != mapBlock) continue;
-                groupDeps.push_back(input);
-            }
-
-            // Split the parallel map
-            auto nextParMap =
-                splitAt(curParMap, firstParMap, node, groupDeps, graph);
-
-            // Update block and node pointers
-            curParMap = nextParMap;
+            curParMap = splitAt(curParMap, firstParMap, node, graph);
             mapBlock = curParMap->blocks().front();
             node = mapBlock->param_node()->next();
         }
 
         // Split after the group
         if (node->next()->kind() != prim::Return) {
-            // Collect all values this group outputs
-            TORCH_INTERNAL_ASSERT_DEBUG_ONLY(node->kind() == prim::FusionGroup);
-            auto groupOutputs = node->outputs().vec();
-
-            // Split the group
-            auto nextParMap = splitAt(curParMap, firstParMap, node->next(),
-                                      groupOutputs, graph);
-
-            // Update block and node pointers
-            curParMap = nextParMap;
+            curParMap = splitAt(curParMap, firstParMap, node->next(), graph);
             mapBlock = curParMap->blocks().front();
             node = mapBlock->param_node();
         }
