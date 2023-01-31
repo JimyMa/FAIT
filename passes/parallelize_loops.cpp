@@ -34,17 +34,6 @@ void markNonParLoops(Block *block, Node *loop,
         auto listDefBlock = list->node()->owningBlock();
         if (listDefBlock == block) continue;
 
-        // Reject if the definition of the list is not in the outer block
-        auto owningNode = block->owningNode();
-        if (owningNode && owningNode->owningBlock() != listDefBlock) {
-            // all the loops along the way are not parallelizable
-            for (auto b = block; b != listDefBlock;
-                 b = b->owningNode()->owningBlock()) {
-                auto n = b->owningNode();
-                if (n->kind() == prim::Loop) nonParLoops.insert(n);
-            }
-        }
-
         // Check if the read (`aten::__getitem__`) is supported
         if (!loop) continue;
         auto body = loop->blocks()[0];
