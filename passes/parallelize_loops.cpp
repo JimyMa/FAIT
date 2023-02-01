@@ -145,8 +145,7 @@ void ParallelizeLoops(const std::shared_ptr<Graph> &graph) {
     for (auto loop : loops) convertLoopToMap(loop, graph.get());
 }
 
-static Node *splitAt(Node *prevParMap, Node *firstParMap, Node *splitNode,
-                     Graph *graph) {
+static Node *splitAt(Node *prevParMap, Node *splitNode, Graph *graph) {
     // Find straight returns and dependent values of previous map
     std::unordered_set<Value *> prevStraightRets;
     std::vector<Value *> nextDepPrevs;
@@ -175,13 +174,11 @@ static Node *splitAt(Node *prevParMap, Node *firstParMap, Node *splitNode,
 
     // Add node inputs and block parameters of the first map to the next map
     std::unordered_map<Value *, Value *> valueMap;
-    auto firstBlock = firstParMap->blocks().front();
-    for (auto i = 0u; i < firstParMap->inputs().size(); i++) {
-        auto firstIn = firstParMap->input(i),
-             firstParam = firstBlock->inputs()[i];
-        nextParMap->addInput(firstIn);
-        auto nextParam = nextBlock->addInput()->setType(firstParam->type());
-        valueMap.insert({firstParam, nextParam});
+    for (auto i = 0u; i < prevParMap->inputs().size(); i++) {
+        auto prevIn = prevParMap->input(i), prevParam = prevBlock->inputs()[i];
+        nextParMap->addInput(prevIn);
+        auto nextParam = nextBlock->addInput()->setType(prevParam->type());
+        valueMap.insert({prevParam, nextParam});
     }
 
     // Possibly move node outputs and block returns of previous map
@@ -230,9 +227,8 @@ static Node *splitAt(Node *prevParMap, Node *firstParMap, Node *splitNode,
     return nextParMap;
 }
 
-static void splitParallelMap(Node *firstParMap, Graph *graph) {
+static void splitParallelMap(Node *curParMap, Graph *graph) {
     // Find fusion group and split parallel map
-    auto curParMap = firstParMap;
     auto mapBlock = curParMap->blocks().front();
     for (auto node = mapBlock->nodes().front(); node != mapBlock->return_node();
          node = node->next()) {
@@ -241,14 +237,14 @@ static void splitParallelMap(Node *firstParMap, Graph *graph) {
 
         // Split before the group
         if (node->prev()->kind() != prim::Param) {
-            curParMap = splitAt(curParMap, firstParMap, node, graph);
+            curParMap = splitAt(curParMap, node, graph);
             mapBlock = curParMap->blocks().front();
             node = mapBlock->param_node()->next();
         }
 
         // Split after the group
         if (node->next()->kind() != prim::Return) {
-            curParMap = splitAt(curParMap, firstParMap, node->next(), graph);
+            curParMap = splitAt(curParMap, node->next(), graph);
             mapBlock = curParMap->blocks().front();
             node = mapBlock->param_node();
         }
@@ -265,6 +261,21 @@ void SplitParallelMaps(const std::shared_ptr<Graph> &graph) {
 
     // Split parallel maps for fusion groups
     for (auto parMap : parMaps) splitParallelMap(parMap, graph.get());
+
+    // Remove unused map inputs and block parameters
+    traversePostOrder(graph->block(), [](Node *node) {
+        if (node->kind() != prim::ParallelMap) return true;
+        auto block = node->blocks().front();
+        for (auto i = 1; i < node->inputs().size();) {
+            auto mapIn = node->input(i), blockParam = block->inputs()[i];
+            if (!blockParam->hasUses()) {
+                node->removeInput(i);
+                block->eraseInput(i);
+            } else
+                i++;
+        }
+        return true;
+    });
 }
 
 }  // namespace jit
