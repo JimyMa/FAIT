@@ -112,6 +112,19 @@ static std::vector<Symbol> fusableOpSymbols{
 static std::unordered_set<Symbol> fusableNoOpSymbols{prim::ListConstruct,
                                                      prim::ListUnpack};
 
+static std::unordered_set<Symbol> workingSymbols{
+    // Tensor creation
+    aten::tensor, aten::arange, aten::to,
+    // Elementwise
+    aten::exp, aten::log, aten::sin, aten::cos, aten::sqrt, aten::sigmoid,
+    aten::clamp,
+    // Binary
+    aten::add, aten::sub, aten::mul, aten::div, aten::minimum, aten::maximum,
+    // Comparison
+    aten::eq, aten::ne, aten::lt, aten::le, aten::gt, aten::ge,
+    // Copy
+    aten::repeat, aten::cat, aten::stack};
+
 static std::unordered_map<Symbol, bool (*)(Node *node)> fusabilityCheckers{
     {aten::__getitem__,
      [](Node *node) {
@@ -119,11 +132,13 @@ static std::unordered_map<Symbol, bool (*)(Node *node)> fusabilityCheckers{
      }},
 };
 
-static void printFusableOps() {
-    for (auto sym : fusableOpSymbols) {
-        for (auto &op : getAllOperatorsFor(sym))
-            std::cout << '"' << op->schema() << "\",\n";
-    }
+static void addTssaSymbols() {
+    fusableNoOpSymbols.insert({tssa::Assign, tssa::Update});
+    workingSymbols.insert(tssa::Assign);
+    fusabilityCheckers.insert({tssa::Assign, [](Node *node) {
+                                   return node->input(0)->node()->kind() !=
+                                          aten::index;
+                               }});
 }
 
 static bool isFusable(Node *node, bool isOut) {
@@ -149,14 +164,6 @@ static bool isFusable(Node *node, bool isOut) {
         for (auto output : node->outputs()) {
             if (!output->type()->castRaw<TensorType>()) return false;
         }
-    } else {
-        // Do not fuse intermediates nodes with uses not in this block
-        auto block = node->owningBlock();
-        for (auto output : node->outputs()) {
-            for (auto &use : output->uses()) {
-                if (use.user->owningBlock() != block) return false;
-            }
-        }
     }
 
     // Perform addtional checking
@@ -166,42 +173,23 @@ static bool isFusable(Node *node, bool isOut) {
         return true;
 }
 
-static std::unordered_set<Symbol> workingSymbols{
-    // Tensor creation
-    aten::arange, aten::to,
-    // Elementwise
-    aten::exp, aten::log, aten::sin, aten::cos, aten::sqrt, aten::sigmoid,
-    // Binary
-    aten::add, aten::sub, aten::mul, aten::div, aten::minimum, aten::maximum,
-    // Copy
-    aten::repeat, aten::cat, aten::stack};
-
-void addTssaSymbols() {
-    fusableNoOpSymbols.insert({tssa::Assign, tssa::Update});
-    workingSymbols.insert(tssa::Assign);
-    fusabilityCheckers.insert({tssa::Assign, [](Node *node) {
-                                   return node->input(0)->node()->kind() !=
-                                          aten::index;
-                               }});
+static bool shouldFuseGroup(Node *head, Node *tail) {
+    size_t numWorking = 0;
+    for (auto node = head; node != tail; node = node->next())
+        numWorking += workingSymbols.count(node->kind());
+    return numWorking > 1;
 }
 
-static bool shouldFuse(const std::vector<Node *> group) {
-    // No need to fuse single-node group
-    if (group.size() == 1) return false;
-
-    // Reject group that has no working symbols
-    auto nWorkNodes = 0u;
-    for (auto node : group) nWorkNodes += workingSymbols.count(node->kind());
-    if (nWorkNodes < 2) return false;
-
-    return true;
-}
-
-static void findGroupInOutValues(const std::vector<Node *> &group,
+static void findGroupInOutValues(Node *head, Node *tail,
                                  std::vector<Value *> &inputs,
                                  std::vector<Value *> &outputs) {
-    std::unordered_set<Node *> groupNodeSet(group.begin(), group.end());
-    for (auto node : group) {
+    // Create group node set
+    std::unordered_set<Node *> groupNodeSet;
+    for (auto node = head; node != tail; node = node->next())
+        groupNodeSet.insert(node);
+
+    // Find inputs and outputs for each node
+    for (auto node = head; node != tail; node = node->next()) {
         // Find inputs
         for (auto input : node->inputs()) {
             // Constants are not considered inputs
@@ -234,118 +222,102 @@ static void findGroupInOutValues(const std::vector<Node *> &group,
     }
 }
 
-static bool compareNodePosition(Node *lhs, Node *rhs) {
-    return lhs->isBefore(rhs);
-}
-
-static void commitFusion(std::vector<Node *> &&group, Block *block,
-                         Graph *graph) {
+static Node *commitFusion(Node *head, Node *tail, Block *block, Graph *graph) {
     // Collect input and output values from the nodes in the group
     std::vector<Value *> inputs, outputs;
-    findGroupInOutValues(group, inputs, outputs);
-
-    // Find the correct place to insert this node
-    auto lastInputDef = block->param_node();
-    for (auto input : inputs) {
-        auto defNode = input->node();
-        if (defNode->owningBlock() != block) continue;
-        if (defNode->isAfter(lastInputDef)) lastInputDef = defNode;
-    }
+    findGroupInOutValues(head, tail, inputs, outputs);
 
     // Create fusion node
     auto fusionNode = graph->create(prim::FusionGroup, inputs, outputs.size());
-    fusionNode->insertAfter(lastInputDef);
+    fusionNode->insertBefore(tail);
     auto fusionBlock = fusionNode->addBlock();
 
-    // Handle constants, as they are not considered inputs of the group
-    for (auto node : group) {
-        for (auto input : node->inputs()) {
-            auto defNode = input->node();
-            if (defNode->kind() == prim::Constant &&
-                defNode->isAfter(fusionNode))
-                defNode->moveBefore(fusionNode);
-        }
+    // Replace outputs of the group
+    for (auto output : outputs) {
+        auto groupOut = fusionNode->addOutput()->setType(output->type());
+        output->replaceAllUsesAfterNodeWith(fusionNode, groupOut);
     }
 
     // Map input values
     std::unordered_map<Value *, Value *> valueMap;
     for (auto input : inputs) {
-        auto param = fusionBlock->addInput();
+        auto param = fusionBlock->addInput()->setType(input->type());
         param->setType(input->type());
         valueMap.insert({input, param});
     }
 
     // Move nodes to the new block
-    for (auto node : group) {
-        node->moveBefore(fusionBlock->return_node());
-        for (auto i = 0u; i < node->inputs().size(); i++) {
-            auto arg = node->input(i);
-            if (valueMap.count(arg)) node->replaceInput(i, valueMap[arg]);
-        }
-    }
+    moveNodesToBlock(head, fusionNode, fusionBlock, graph, valueMap);
 
-    // Move uses of outputs after the fusion group
+    // Handle block returns
     for (auto output : outputs) {
-        for (auto &use : output->uses()) {
-            auto user = use.user;
-            if (user->owningBlock() != block) continue;
-            if (user->isBefore(fusionNode)) user->moveAfter(fusionNode);
-        }
+        fusionBlock->insertOutput(fusionBlock->outputs().size(),
+                                  valueMap.at(output));
     }
 
-    // Handle block return and node outputs
-    for (auto i = 0u; i < outputs.size(); i++) {
-        auto output = outputs[i];
-        fusionBlock->return_node()->addInput(output);
-        fusionNode->output(i)->setType(output->type());
-        output->replaceAllUsesAfterNodeWith(fusionNode, fusionNode->output(i));
-    }
+    return fusionNode;
 }
 
 static void fuseOpsIn(Block *block, Graph *graph) {
-    // Find fusable nodes and create disjoint sets for nodes
-    DisjointSets<Node *> fusionDisjSets;
-    auto checkFusable = [&](Node *node, bool isOut) {
-        if (fusionDisjSets.contains(node)) return true;
-        return isFusable(node, isOut);
-    };
-    for (auto node : block->nodes().reverse()) {
-        // Check fusability of this node
-        if (!checkFusable(node, true)) continue;
+    // Find tail node to begin with
+    for (auto tail = block->return_node(), head = tail;
+         tail != block->nodes().front(); tail = head) {
+        // Record known predecessors
+        std::unordered_set<Node *> knownPreds;
 
-        // Check fusability of predecessors and possibly merge nodes
-        for (auto input : node->inputs()) {
-            auto pred = input->node();
-            if (pred->owningBlock() != block)
-                continue;  // cannot fuse nodes outside this block
-            if (checkFusable(pred, false)) fusionDisjSets.merge(node, pred);
+        // Traverse in reverse order to find all fusable nodes
+        for (auto node = head->prev(); node != block->param_node();
+             node = node->prev()) {
+            // Do not fuse constants
+            auto fixRangeIfEmpty = [&]() {
+                if (head == tail) tail = head = node;
+            };
+            if (node->kind() == prim::Constant) {
+                fixRangeIfEmpty();
+                continue;
+            }
+
+            // Check if current node is fusable
+            if (!isFusable(node, !knownPreds.count(node))) {
+                fixRangeIfEmpty();
+                continue;
+            }
+
+            // Check if this node can be moved to the group
+            bool canMove = true;
+            for (auto output : node->outputs()) {
+                for (auto &use : output->uses()) {
+                    if (use.user->isBefore(head)) {
+                        canMove = false;
+                        break;
+                    }
+                }
+                if (!canMove) break;
+            }
+            if (!canMove) {
+                fixRangeIfEmpty();
+                continue;
+            }
+
+            // Add predecessors to map
+            for (auto input : node->inputs()) knownPreds.insert(input->node());
+
+            // Move this node to the head of the group
+            node->moveBefore(head);
+            head = node;
         }
-    }
 
-    // Check group fusability and commit fusion
-    auto fusableNodeList = fusionDisjSets.getAll();
-    std::sort(fusableNodeList.begin(), fusableNodeList.end(),
-              compareNodePosition);
-    std::unordered_set<Node *> checkedNodes;
-    for (auto node : fusableNodeList) {
-        // Skip if checked before
-        if (checkedNodes.count(node)) continue;
-
-        // Check if the group should be fused
-        auto group = fusionDisjSets.getSetOf(node);
-        if (!shouldFuse(group)) continue;
-        std::sort(group.begin(), group.end(), compareNodePosition);
-        for (auto nodeInGroup : group) checkedNodes.insert(nodeInGroup);
+        // Check if current group can be fused
+        if (!shouldFuseGroup(head, tail)) continue;
 
         // Commit fusion
-        commitFusion(std::move(group), block, graph);
+        head = commitFusion(head, tail, block, graph);
     }
 }
 
 void FuseOps(const std::shared_ptr<Graph> &graph) {
     // Add TensorSSA symbols to records
     addTssaSymbols();
-    // printFusableOps();
 
     // Collect all blocks
     std::vector<Block *> blocks;
