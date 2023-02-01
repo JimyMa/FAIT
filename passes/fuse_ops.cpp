@@ -228,7 +228,7 @@ static Node *commitFusion(Node *head, Node *tail, Block *block, Graph *graph) {
     findGroupInOutValues(head, tail, inputs, outputs);
 
     // Create fusion node
-    auto fusionNode = graph->create(prim::FusionGroup, inputs, outputs.size());
+    auto fusionNode = graph->create(prim::FusionGroup, inputs, 0);
     fusionNode->insertBefore(tail);
     auto fusionBlock = fusionNode->addBlock();
 
