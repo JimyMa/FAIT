@@ -7,16 +7,6 @@
 #include "util/ir.h"
 #include "util/traits.h"
 
-namespace c10 {
-namespace tssa {
-
-Symbol ns = Symbol::fromQualString("namespaces::tssa");
-Symbol Assign = Symbol::fromQualString("tssa::Assign");
-Symbol Update = Symbol::fromQualString("tssa::Update");
-
-}  // namespace tssa
-}  // namespace c10
-
 namespace torch {
 namespace jit {
 

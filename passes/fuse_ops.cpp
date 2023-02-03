@@ -109,8 +109,8 @@ static std::vector<Symbol> fusableOpSymbols{
     aten::size, aten::__getitem__, prim::dtype, prim::device,
     prim::TupleUnpack};
 
-static std::unordered_set<Symbol> fusableNoOpSymbols{prim::ListConstruct,
-                                                     prim::ListUnpack};
+static std::unordered_set<Symbol> fusableNoOpSymbols{
+    tssa::Assign, tssa::Update, prim::ListConstruct, prim::ListUnpack};
 
 static std::unordered_set<Symbol> workingSymbols{
     // Tensor creation
@@ -123,13 +123,17 @@ static std::unordered_set<Symbol> workingSymbols{
     // Comparison
     aten::eq, aten::ne, aten::lt, aten::le, aten::gt, aten::ge,
     // Copy
-    aten::repeat, aten::cat, aten::stack};
+    aten::repeat, aten::cat, aten::stack,
+    // TensorSSA
+    tssa::Assign};
 
 static std::unordered_map<Symbol, bool (*)(Node *node)> fusabilityCheckers{
     {aten::__getitem__,
      [](Node *node) {
          return node->owningBlock() == node->input(0)->node()->owningBlock();
      }},
+    {tssa::Assign,
+     [](Node *node) { return node->input(0)->node()->kind() != aten::index; }},
 };
 
 static void addTssaSymbols() {
@@ -316,9 +320,6 @@ static void fuseOpsIn(Block *block, Graph *graph) {
 }
 
 void FuseOps(const std::shared_ptr<Graph> &graph) {
-    // Add TensorSSA symbols to records
-    addTssaSymbols();
-
     // Collect all blocks
     std::vector<Block *> blocks;
     blocks.push_back(graph->block());

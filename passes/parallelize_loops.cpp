@@ -3,14 +3,6 @@
 #include "util/ir.h"
 #include "util/traits.h"
 
-namespace c10 {
-namespace prim {
-
-Symbol ParallelMap = Symbol::prim("ParallelMap");
-
-}
-}  // namespace c10
-
 namespace torch {
 namespace jit {
 

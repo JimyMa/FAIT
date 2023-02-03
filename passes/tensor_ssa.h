@@ -5,8 +5,9 @@
 namespace c10 {
 namespace tssa {
 
-extern Symbol ns;
-extern Symbol Assign, Update;
+static auto ns = Symbol::fromQualString("namespaces::tssa");
+static auto Assign = Symbol::fromQualString("tssa::Assign");
+static auto Update = Symbol::fromQualString("tssa::Update");
 
 }  // namespace tssa
 }  // namespace c10

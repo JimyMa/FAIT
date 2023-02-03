@@ -5,7 +5,7 @@
 namespace c10 {
 namespace prim {
 
-extern Symbol ParallelMap;
+static auto ParallelMap = Symbol::prim("ParallelMap");
 
 }
 }  // namespace c10
