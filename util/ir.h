@@ -22,13 +22,24 @@ bool traversePreOrder(Block *block, const std::function<bool(Node *)> &visitor);
 bool traversePostOrder(Block *block,
                        const std::function<bool(Node *)> &visitor);
 
-/// @brief Replace the node with a new node.
+/// @brief Remove the node, and return the one right before it.
+/// @param node The node to be removed.
+/// @return The node right before the removed one.
+inline Node *remove(Node *node) {
+    auto prev = node->prev();
+    node->destroy();
+    return prev;
+}
+
+/// @brief Replace the node with a new node, and return the one right before the
+/// old node.
 /// @param oldNode The old node to be replaced.
 /// @param newNode The new node that will replace the old one.
-inline void replace(Node *oldNode, Node *newNode) {
+/// @return The node right before the old one.
+inline Node *replace(Node *oldNode, Node *newNode) {
     newNode->insertAfter(oldNode);
     oldNode->replaceAllUsesWith(newNode);
-    oldNode->destroy();
+    return remove(oldNode);
 }
 
 /// @brief Rewrite nodes in a block with a given pattern recursively in
@@ -39,15 +50,6 @@ inline void replace(Node *oldNode, Node *newNode) {
 /// is successfully applied and the following traversal should begin right after
 /// this node, and nullptr otherwise.
 void rewrite(Block *block, const std::function<Node *(Node *)> &pattern);
-
-/// @brief Remove the node, and return the one right before it.
-/// @param node The node to be removed.
-/// @return The node right before the removed one.
-inline Node *remove(Node *node) {
-    auto prev = node->prev();
-    node->destroy();
-    return prev;
-}
 
 /// @brief Clone the nodes in range [`begin`, `end`) to the end of the new
 /// block.
