@@ -16,9 +16,11 @@ void InferDtypeAndDevice(const std::shared_ptr<Graph> &graph,
 
 /// Lookup tables for tensor type refinement functions
 
-extern OperatorMap<std::vector<c10::ScalarType> (*)(Node *)> dtypeFuncs;
-extern OperatorMap<std::vector<c10::Device> (*)(Node *)> deviceFuncs;
-extern OperatorMap<std::vector<c10::SymbolicShape> (*)(Node *)> shapeFuncs;
+extern OperatorMap<c10::SymbolicShape (*)(Node *, ValueTypeMap &)> shapeFuncs;
+extern OperatorMap<c10::ScalarType (*)(Node *, ValueTypeMap &)> dtypeFuncs;
+extern OperatorMap<c10::Device (*)(Node *, ValueTypeMap &)> deviceFuncs;
+
+void initTensorTypeFuncs();
 
 }  // namespace jit
 }  // namespace torch

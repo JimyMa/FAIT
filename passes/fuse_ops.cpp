@@ -17,6 +17,13 @@ OperatorSet fusableOps{
     "bool requires_grad=False) -> Tensor",
     "aten::tensor(t[] data, *, ScalarType? dtype=None, Device? device=None, "
     "bool requires_grad=False) -> Tensor",
+    "aten::to.device(Tensor(a) self, Device device, ScalarType dtype, bool "
+    "non_blocking=False, bool copy=False, MemoryFormat? memory_format=None) -> "
+    "Tensor(a)",
+    "aten::to.dtype(Tensor(a) self, ScalarType dtype, bool non_blocking=False, "
+    "bool copy=False, MemoryFormat? memory_format=None) -> Tensor(a)",
+    "aten::to.other(Tensor(a) self, Tensor other, bool non_blocking=False, "
+    "bool copy=False, MemoryFormat? memory_format=None) -> Tensor(a)",
     "aten::arange(Scalar end, *, ScalarType? dtype=None, Layout? layout=None, "
     "Device? device=None, bool? pin_memory=None) -> Tensor",
     "aten::arange.start(Scalar start, Scalar end, *, ScalarType? dtype=None, "
@@ -25,19 +32,6 @@ OperatorSet fusableOps{
     "aten::arange.start_step(Scalar start, Scalar end, Scalar step=1, *, "
     "ScalarType? dtype=None, Layout? layout=None, Device? device=None, bool? "
     "pin_memory=None) -> Tensor",
-    "aten::to.device(Tensor(a) self, Device device, ScalarType dtype, bool "
-    "non_blocking=False, bool copy=False, MemoryFormat? memory_format=None) -> "
-    "Tensor(a)",
-    "aten::to.dtype(Tensor(a) self, ScalarType dtype, bool non_blocking=False, "
-    "bool copy=False, MemoryFormat? memory_format=None) -> Tensor(a)",
-    "aten::to.other(Tensor(a) self, Tensor other, bool non_blocking=False, "
-    "bool copy=False, MemoryFormat? memory_format=None) -> Tensor(a)",
-    "aten::to.prim_Device(Tensor(a) self, Device? device, int? dtype=None, "
-    "bool non_blocking=False, bool copy=False) -> Tensor(a|b)",
-    "aten::to.prim_dtype(Tensor(a) self, int? dtype=None, bool "
-    "non_blocking=False, bool copy=False) -> Tensor(a|b)",
-    "aten::to.prim_other(Tensor(a) self, bool non_blocking=False, bool "
-    "copy=False) -> Tensor(a|b)",
     "aten::exp(Tensor self) -> Tensor",
     "aten::log(Tensor self) -> Tensor",
     "aten::sin(Tensor self) -> Tensor",
