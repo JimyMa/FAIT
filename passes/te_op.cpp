@@ -3,12 +3,19 @@
 //
 #include "torch/csrc/jit/runtime/custom_operator.h"
 
+#include "util/ir.h"
 #include "fuser/graph_builder.h"
-
 #include "passes/te_op.h"
 
 namespace torch {
 namespace jit {
+
+void MapFunctorToParallization(const std::shared_ptr<Graph> &graph,
+                               const std::unordered_map<Value *, TypePtr>& refine_types) {
+  rewrite(graph->block(), [&](Node* node) -> Node * {
+    return nullptr;
+  });
+}
 
 Operation CreateTeOperator(const Node* node) {
   auto graph_builder = std::make_shared<GraphBuilder>(node->g(attr::Subgraph));

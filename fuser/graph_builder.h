@@ -9,8 +9,6 @@
 #include "torch/csrc/jit/ir/ir.h"
 #include "torch/csrc/jit/runtime/interpreter.h"
 
-#include "tvm/runtime/ndarray.h"
-
 
 namespace torch {
 namespace jit {
@@ -38,10 +36,6 @@ class GraphBuilder {
  private:
   void compile();
   void runKernel(Stack& stack) const;
-
-  std::vector<tvm::runtime::NDArray> prepareRunArgs(
-      const at::ArrayRef<IValue>& inputs,
-      std::vector<at::Tensor>& outputs) const;
 
   int64_t nInputs_ = 0;
   int64_t nOutputs_ = 0;

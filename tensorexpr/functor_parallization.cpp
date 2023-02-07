@@ -7,10 +7,6 @@
 
 using namespace torch::jit::tensorexpr;
 
-ExprPtr parallel_expr(ExprPtr expr, ExprPtr functor_expr, std::vector<ExprHandle> parallel_expr) {
-
-}
-
 ExprPtr ParallelFunctorInputArgsMutator::expr_replace(LoadPtr functor_arg, std::vector<BufHandle>& parallel_args) {
   if (parallel_args.empty())
     return nullptr;

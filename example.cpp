@@ -8,6 +8,7 @@
 #include "passes/refine_types.h"
 #include "passes/tensor_ssa.h"
 #include "passes/validate_graph.h"
+#include "passes/te_op.h"
 
 using namespace torch::jit;
 
@@ -37,17 +38,23 @@ int main(int argc, const char *argv[]) {
         auto graph = mod.get_method("forward").graph();
         RefineInputTypes(graph, inputTypes, refinedTypes);
         ToTensorSSA(graph);
-        graph->print(std::ofstream("after_tssa.rb"));
+        auto tmp = std::ofstream("after_tssa.rb");
+        graph->print(tmp);
         HoistLoopInvariants(graph);
         EliminateCommonSubexprTSSA(graph);
-        graph->print(std::ofstream("after_cse.rb"));
+        tmp = std::ofstream("after_cse.rb");
+        graph->print(tmp);
         ParallelizeLoops(graph);
         InferDtypeAndDevice(graph, refinedTypes);
-        graph->print(std::ofstream("after_par.rb"));
+        tmp = std::ofstream("after_par.rb");
+        graph->print(tmp);
         FuseOps(graph);
-        graph->print(std::ofstream("after_fuse.rb"));
+        tmp = std::ofstream("after_fuse.rb");
+        graph->print(tmp);
         SplitParallelMaps(graph);
-        graph->print(std::ofstream("after_split.rb"));
+        tmp = std::ofstream("after_split.rb");
+        MapFunctorToParallization(graph, refinedTypes);
+        tmp =std::ofstream("after_codegen.rb");
         Validate(graph);
     } catch (c10::Error &err) {
         std::cout << err.what();

@@ -3,8 +3,6 @@
 //
 #include <utility>
 
-#include "tvm/runtime/ndarray.h"
-
 #include "fuser/graph_builder.h"
 
 namespace torch {
@@ -45,19 +43,6 @@ void GraphBuilder::run(torch::jit::Stack &stack) const {
 void GraphBuilder::runKernel(Stack &stack) const {
   auto inputs = last(stack, nInputs_);
   std::vector<at::Tensor> outputs;
-  std::vector<tvm::runtime::NDArray> runArgs = prepareRunArgs(inputs, outputs);
-
-}
-
-std::vector<tvm::runtime::NDArray>
-GraphBuilder::prepareRunArgs(const ArrayRef<IValue> &inputs, std::vector<at::Tensor> &outputs) const {
-  std::vector<tvm::runtime::NDArray> runArgs;
-  for (auto& input : inputs) {
-    runArgs.emplace_back(tvm::runtime::NDArray::Empty({2, 2},
-                                                      tvm::DataType::Float(32, 1),
-                                                      {kDLCPU, 0}));
-  }
-  return runArgs;
 }
 
 }  // namespace jit

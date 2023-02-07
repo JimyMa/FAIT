@@ -10,6 +10,7 @@ set(CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS})
 include_directories(${PROJECT_SOURCE_DIR})
 
 file(GLOB SOURCES
+        ${PROJECT_SOURCE_DIR}/fuser/*.cpp
         ${PROJECT_SOURCE_DIR}/passes/*.cpp
         ${PROJECT_SOURCE_DIR}/tensorexpr/*.cpp
         ${PROJECT_SOURCE_DIR}/util/*.cpp)
