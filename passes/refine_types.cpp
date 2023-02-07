@@ -255,8 +255,40 @@ static void inferDtypeIn(Block *block, ValueTypeMap &refinedTypes) {
             }
 
             default: {
-                if (symbolPropagators.count(kind))
+                if (symbolPropagators.count(kind)) {
                     symbolPropagators[kind](node, refinedTypes, inferDtypeIn);
+                    continue;
+                }
+
+                // Skip if there is no tensor in the output
+                auto outputs = node->outputs();
+                if (std::none_of(outputs.begin(), outputs.end(), isTensor))
+                    continue;
+
+                // Use per-operator dtype function to infer dtype
+                auto dtype = c10::kFloat;
+                auto op = node->maybeOperator();
+                if (op && dtypeFuncs.contains(*op))
+                    dtype = (*dtypeFuncs.find(*op))(node, refinedTypes);
+                else {
+                    for (auto input : node->inputs()) {
+                        if (!isTensor(input)) continue;
+                        auto inDtype =
+                            input->type()->cast<TensorType>()->scalarType();
+                        if (inDtype) {
+                            dtype = *inDtype;
+                            break;
+                        }
+                    }
+                }
+
+                // Propagate device to outputs
+                for (auto output : outputs) {
+                    if (!isTensor(output)) continue;
+                    output->setType(
+                        output->type()->cast<TensorType>()->withScalarType(
+                            dtype));
+                }
             }
         }
     }
@@ -324,6 +356,7 @@ void InferDtypeAndDevice(const std::shared_ptr<Graph> &graph,
                          ValueTypeMap &refinedTypes) {
     initTensorTypeFuncs();
     inferDeviceIn(graph->block(), refinedTypes);
+    inferDtypeIn(graph->block(), refinedTypes);
 }
 
 }  // namespace jit
