@@ -10,33 +10,59 @@
 namespace torch {
 namespace jit {
 
-static void setRefinedType(Value *value, TypePtr newType,
-                           ValueTypeMap &refinedTypes) {
-    // Directly set if the new type kind matches the original value type
-    auto prevType = value->type();
-    auto prevKind = prevType->kind(), newKind = newType->kind();
-    if (prevKind == newKind) {
-        value->setType(newType);
-        return;
-    }
-
-    // Set refined type in the map
-    refinedTypes.insert({value, newType});
-
-    // Convert refined type to match original type kind
-    if (prevKind == TypeKind::ListType && newKind == TypeKind::TupleType) {
+static TypePtr convertToMatch(TypePtr src, TypePtr tgt) {
+    auto srcKind = src->kind(), tgtKind = tgt->kind();
+    if (srcKind == TypeKind::ListType && tgtKind == TypeKind::ListType) {
+        // Convert element types
+        return ListType::create(
+            convertToMatch(src->cast<ListType>()->getElementType(),
+                           tgt->cast<ListType>()->getElementType()));
+    } else if (srcKind == TypeKind::TupleType &&
+               tgtKind == TypeKind::ListType) {
         // Unify types in the tuple
-        auto elemTypes = newType->cast<TupleType>()->elements();
+        auto elemTypes = src->cast<TupleType>()->elements();
         auto unified = c10::unifyTypeList(elemTypes, std::cout);
         if (!unified.has_value()) {
-            throw c10::TypeError("Cannot unify elements in " + newType->str(),
+            throw c10::TypeError("Cannot unify elements in " + src->str(),
                                  c10::get_backtrace());
         }
-        value->setType(ListType::create(*unified));
+        auto matched =
+            convertToMatch(*unified, tgt->cast<ListType>()->getElementType());
+        return ListType::create(matched);
+    } else if (tgtKind == TypeKind::OptionalType) {
+        if (srcKind == TypeKind::OptionalType) {
+            return OptionalType::create(
+                convertToMatch(src->cast<OptionalType>()->getElementType(),
+                               tgt->cast<OptionalType>()->getElementType()));
+        } else {
+            return OptionalType::create(convertToMatch(
+                src, tgt->cast<OptionalType>()->getElementType()));
+        }
+    } else if (srcKind == tgtKind) {
+        return src;
     } else {
-        throw c10::TypeError("Cannot convert " + newType->str() +
-                                 " to refine " + prevType->str(),
-                             c10::get_backtrace());
+        throw c10::TypeError(
+            "Cannot convert " + src->str() + " to match " + tgt->str(),
+            c10::get_backtrace());
+    }
+}
+
+static void setRefinedType(Value *value, const TypePtr &newType,
+                           ValueTypeMap &refinedTypes) {
+    auto &uses = value->uses();
+    TypePtr matched = nullptr;
+    if (value->type()->kind() == TypeKind::ListType &&
+        std::any_of(uses.begin(), uses.end(),
+                    [](const Use &use) { return use.user->maybeSchema(); })) {
+        matched = value->type();
+    } else {
+        matched = convertToMatch(newType, value->type());
+        value->setType(matched);
+    }
+    if (*matched != *newType) {
+        refinedTypes[value] = newType;
+        // std::cout << value->debugName() << ' ' << *matched << ' ' << *newType
+        //           << ' ' << *refinedTypes[value] << '\n';
     }
 }
 
@@ -72,6 +98,12 @@ static void propagateConstant(TYPE_PROP_PARAMS) {
     setRefinedType(node->output(0), ty, refinedTypes);
 }
 
+static void propagateTupleConstruct(TYPE_PROP_PARAMS) {
+    std::vector<TypePtr> elemTypes;
+    for (auto input : node->inputs()) elemTypes.push_back(input->type());
+    node->output(0)->setType(TupleType::create(elemTypes));
+}
+
 static void propagateTupleUnpack(TYPE_PROP_PARAMS) {
     auto elemTypes = node->input(0)->type()->cast<TupleType>()->elements();
     for (auto i = 0u; i < elemTypes.size(); i++)
@@ -91,7 +123,14 @@ static void propagateListUnpack(TYPE_PROP_PARAMS) {
     }
 }
 
+static void propagateListConstruct(TYPE_PROP_PARAMS) {
+    std::vector<TypePtr> elemTypes;
+    for (auto input : node->inputs()) elemTypes.push_back(input->type());
+    setRefinedType(node->output(0), TupleType::create(elemTypes), refinedTypes);
+}
+
 static void propagateGetItem(TYPE_PROP_PARAMS) {
+    TORCH_INTERNAL_ASSERT_DEBUG_ONLY(node->maybeSchema());
     auto list = node->input(0), index = node->input(1);
     if (refinedTypes.count(list) && refinedTypes[list]->castRaw<TupleType>() &&
         index->node()->kind() == prim::Constant) {
@@ -102,12 +141,6 @@ static void propagateGetItem(TYPE_PROP_PARAMS) {
         auto elemTy = list->type()->cast<ListType>()->getElementType();
         node->output(0)->setType(elemTy);
     }
-}
-
-static void propagateListConstruct(TYPE_PROP_PARAMS) {
-    std::vector<TypePtr> elemTypes;
-    for (auto input : node->inputs()) elemTypes.push_back(input->type());
-    setRefinedType(node->output(0), TupleType::create(elemTypes), refinedTypes);
 }
 
 static void propagateIf(TYPE_PROP_PARAMS) {
@@ -175,7 +208,7 @@ static void propagateParallelMap(TYPE_PROP_PARAMS) {
     // Propagate return types to output lists
     for (auto i = 0u; i < node->outputs().size(); i++) {
         auto ret = block->outputs()[i], outList = node->output(i);
-        outList->setType(ListType::create(ret->type()));
+        setRefinedType(outList, ListType::create(ret->type()), refinedTypes);
     }
 }
 
@@ -185,6 +218,7 @@ static void propagateTssaOps(TYPE_PROP_PARAMS) {
 
 std::unordered_map<Symbol, void (*)(TYPE_PROP_PARAMS)> symbolPropagators{
     {prim::Constant, propagateConstant},
+    {prim::TupleConstruct, propagateTupleConstruct},
     {prim::TupleUnpack, propagateTupleUnpack},
     {prim::ListConstruct, propagateListConstruct},
     {prim::ListUnpack, propagateListUnpack},
@@ -195,6 +229,10 @@ std::unordered_map<Symbol, void (*)(TYPE_PROP_PARAMS)> symbolPropagators{
     {tssa::Assign, propagateTssaOps},
     {tssa::Update, propagateTssaOps},
 };
+
+static bool isTensor(Value *v) {
+    return v->type()->kind() == TypeKind::TensorType;
+}
 
 static void inferDtypeIn(Block *block, ValueTypeMap &refinedTypes) {
     auto graph = block->owningGraph();
@@ -228,7 +266,6 @@ static void inferDeviceIn(Block *block, ValueTypeMap &refinedTypes) {
     auto graph = block->owningGraph();
     for (auto node = block->nodes().front(); node != block->nodes().back();
          node = node->next()) {
-        // Handle special symbols
         auto kind = node->kind();
         switch (node->kind()) {
             case prim::device: {
@@ -244,8 +281,40 @@ static void inferDeviceIn(Block *block, ValueTypeMap &refinedTypes) {
             }
 
             default: {
-                if (symbolPropagators.count(kind))
+                // Propagate types for special symbols
+                if (symbolPropagators.count(kind)) {
                     symbolPropagators[kind](node, refinedTypes, inferDeviceIn);
+                    continue;
+                }
+
+                // Skip if there is no tensor in the output
+                auto outputs = node->outputs();
+                if (std::none_of(outputs.begin(), outputs.end(), isTensor))
+                    continue;
+
+                // Use per-operator device function to infer device
+                c10::Device device(c10::kCUDA);
+                auto op = node->maybeOperator();
+                if (op && deviceFuncs.contains(*op))
+                    device = (*deviceFuncs.find(*op))(node, refinedTypes);
+                else {
+                    for (auto input : node->inputs()) {
+                        if (!isTensor(input)) continue;
+                        auto inputDev =
+                            input->type()->cast<TensorType>()->device();
+                        if (inputDev) {
+                            device = *inputDev;
+                            break;
+                        }
+                    }
+                }
+
+                // Propagate device to outputs
+                for (auto output : outputs) {
+                    if (!isTensor(output)) continue;
+                    output->setType(
+                        output->type()->cast<TensorType>()->withDevice(device));
+                }
             }
         }
     }
@@ -253,7 +322,7 @@ static void inferDeviceIn(Block *block, ValueTypeMap &refinedTypes) {
 
 void InferDtypeAndDevice(const std::shared_ptr<Graph> &graph,
                          ValueTypeMap &refinedTypes) {
-    inferDtypeIn(graph->block(), refinedTypes);
+    initTensorTypeFuncs();
     inferDeviceIn(graph->block(), refinedTypes);
 }
 
