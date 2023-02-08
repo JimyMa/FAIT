@@ -3,6 +3,7 @@
 #include <ATen/core/jit_type.h>
 #include <torch/csrc/jit/ir/ir_views.h>
 
+#include "common_passes.h"
 #include "parallelize_loops.h"
 #include "tensor_ssa.h"
 #include "util/ir.h"
@@ -251,8 +252,7 @@ static void inferDtypeIn(Block *block, ValueTypeMap &refinedTypes) {
                     node->output(0)->replaceAllUsesWith(cnstVal);
                     node = remove(node);
                 }
-                break;
-            }
+            } break;
 
             default: {
                 if (symbolPropagators.count(kind)) {
@@ -289,7 +289,7 @@ static void inferDtypeIn(Block *block, ValueTypeMap &refinedTypes) {
                         output->type()->cast<TensorType>()->withScalarType(
                             dtype));
                 }
-            }
+            } break;
         }
     }
 }
@@ -309,8 +309,7 @@ static void inferDeviceIn(Block *block, ValueTypeMap &refinedTypes) {
                     node->output(0)->replaceAllUsesWith(cnstVal);
                     node = remove(node);
                 }
-                break;
-            }
+            } break;
 
             default: {
                 // Propagate types for special symbols
@@ -357,6 +356,84 @@ void InferDtypeAndDevice(const std::shared_ptr<Graph> &graph,
     initTensorTypeFuncs();
     inferDeviceIn(graph->block(), refinedTypes);
     inferDtypeIn(graph->block(), refinedTypes);
+}
+
+static void inferShapeIn(Block *block, ValueTypeMap &refinedTypes) {
+    auto graph = block->owningGraph();
+    for (auto node = block->nodes().front(); node != block->nodes().back();
+         node = node->next()) {
+        // Handle special symbols
+        auto kind = node->kind();
+        switch (node->kind()) {
+            case aten::size: {
+                auto tensorTy = node->input(0)->type()->cast<TensorType>();
+                auto shape = tensorTy->sizes();
+                if (shape.isComplete()) {
+                    graph->setInsertPoint(node->next());
+                    auto cnstVal =
+                        graph->insertConstant(*shape.concrete_sizes());
+                    node->output(0)->replaceAllUsesWith(cnstVal);
+                    node = remove(node);
+                }
+            } break;
+
+            case aten::len: {
+                auto input = node->input(0);
+                auto inTy = input->type();
+                c10::optional<int64_t> len;
+                if (inTy->kind() == TypeKind::TensorType) {
+                    auto sizes = inTy->cast<TensorType>()->sizes();
+                    if (sizes.size()) len = sizes[0];
+                } else if (inTy->kind() == TypeKind::ListType &&
+                           refinedTypes.count(input) &&
+                           refinedTypes[input]->kind() == TypeKind::TupleType) {
+                    len = refinedTypes[input]
+                              ->cast<TupleType>()
+                              ->elements()
+                              .size();
+                }
+                if (len) {
+                    graph->setInsertPoint(node->next());
+                    auto cnstVal = graph->insertConstant(*len);
+                    node->output(0)->replaceAllUsesWith(cnstVal);
+                    node = remove(node);
+                }
+            } break;
+
+            default: {
+                if (symbolPropagators.count(kind)) {
+                    symbolPropagators[kind](node, refinedTypes, inferShapeIn);
+                    continue;
+                }
+
+                // Skip if there is no tensor in the output
+                auto outputs = node->outputs();
+                if (std::none_of(outputs.begin(), outputs.end(), isTensor))
+                    continue;
+
+                // Use per-operator shape function to infer shape
+                auto op = node->maybeOperator();
+                if (!(op && shapeFuncs.contains(*op))) continue;
+                auto shape = (*shapeFuncs.find(*op))(node, refinedTypes);
+                for (auto output : outputs) {
+                    if (!isTensor(output)) continue;
+                    output->setType(
+                        output->type()->cast<TensorType>()->withSymbolicShapes(
+                            shape));
+                }
+            } break;
+        }
+    }
+}
+
+void InferShape(const std::shared_ptr<Graph> &graph,
+                ValueTypeMap &refinedTypes) {
+    initTensorTypeFuncs();
+    while (true) {
+        inferShapeIn(graph->block(), refinedTypes);
+        if (!FoldConstantsTSSA(graph)) break;
+        EliminateDeadCodeTSSA(graph);
+    }
 }
 
 }  // namespace jit

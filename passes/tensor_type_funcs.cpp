@@ -130,6 +130,29 @@ static OperatorSet atenTensorOps{
     "bool requires_grad=False) -> Tensor",
 };
 
+static c10::optional<size_t> getListLen(Value *list,
+                                        ValueTypeMap &refinedTypes) {
+    if (refinedTypes.count(list) &&
+        refinedTypes[list]->kind() == TypeKind::TupleType) {
+        return refinedTypes[list]->cast<TupleType>()->elements().size();
+    } else
+        return c10::nullopt;
+}
+
+static c10::SymbolicShape inferShapeAtenTensorOps(INFER_PARAMS) {
+    auto value = node->input(0);
+    auto type = value->type();
+    if (value->type()->kind() == TypeKind::ListType) {
+        auto len = getListLen(value, refinedTypes);
+        if (len) {
+            return c10::IntArrayRef({int64_t(*len)});
+        } else
+            return c10::optional<size_t>(1);
+    } else {
+        return c10::optional<size_t>(0);
+    }
+}
+
 static std::unordered_map<TypeKind, c10::ScalarType> typeKindsToScalarTypes{
     {TypeKind::FloatType, c10::kFloat},
     {TypeKind::IntType, c10::kLong},
@@ -170,6 +193,55 @@ static c10::Device inferDeviceCombineOps(INFER_PARAMS) {
     return *tensorTy->device();
 }
 
+static OperatorSet sameShapeOps{
+    "aten::to.device(Tensor(a) self, Device device, ScalarType dtype, bool "
+    "non_blocking=False, bool copy=False, MemoryFormat? memory_format=None) -> "
+    "Tensor(a)",
+    "aten::to.dtype(Tensor(a) self, ScalarType dtype, bool non_blocking=False, "
+    "bool copy=False, MemoryFormat? memory_format=None) -> Tensor(a)",
+    "aten::to.other(Tensor(a) self, Tensor other, bool non_blocking=False, "
+    "bool copy=False, MemoryFormat? memory_format=None) -> Tensor(a)",
+    "aten::exp(Tensor self) -> Tensor",
+    "aten::log(Tensor self) -> Tensor",
+    "aten::sin(Tensor self) -> Tensor",
+    "aten::cos(Tensor self) -> Tensor",
+    "aten::sqrt(Tensor self) -> Tensor",
+    "aten::sigmoid(Tensor self) -> Tensor",
+    "aten::clamp(Tensor self, Scalar? min=None, Scalar? max=None) -> Tensor",
+    "aten::clamp.Tensor(Tensor self, Tensor? min=None, Tensor? max=None) -> "
+    "Tensor",
+    "aten::add.Scalar(Tensor self, Scalar other, Scalar alpha=1) -> Tensor",
+    "aten::add.Scalar(Tensor self, Scalar other, Scalar alpha=1) -> Tensor",
+    "aten::sub.Scalar(Tensor self, Scalar other, Scalar alpha=1) -> Tensor",
+    "aten::mul.Scalar(Tensor self, Scalar other) -> Tensor",
+    "aten::div.Scalar(Tensor self, Scalar other) -> Tensor",
+    "aten::eq.Scalar(Tensor self, Scalar other) -> Tensor",
+    "aten::ne.Scalar(Tensor self, Scalar other) -> Tensor",
+    "aten::lt.Scalar(Tensor self, Scalar other) -> Tensor",
+    "aten::gt.Scalar(Tensor self, Scalar other) -> Tensor",
+    "aten::ge.Scalar(Tensor self, Scalar other) -> Tensor",
+};
+
+static c10::SymbolicShape passSameShape(INFER_PARAMS) {
+    return node->input(0)->type()->cast<TensorType>()->symbolic_sizes();
+}
+
+static OperatorSet rankOneOps{
+    "aten::arange(Scalar end, *, ScalarType? dtype=None, Layout? layout=None, "
+    "Device? device=None, bool? pin_memory=None) -> Tensor",
+    "aten::arange.start(Scalar start, Scalar end, *, ScalarType? dtype=None, "
+    "Layout? layout=None, Device? device=None, bool? pin_memory=None) -> "
+    "Tensor",
+    "aten::arange.start_step(Scalar start, Scalar end, Scalar step=1, *, "
+    "ScalarType? dtype=None, Layout? layout=None, Device? device=None, bool? "
+    "pin_memory=None) -> Tensor",
+};
+
+template <size_t Rank>
+static c10::SymbolicShape getRankedShape(INFER_PARAMS) {
+    return c10::optional<size_t>(Rank);
+}
+
 static OperatorSet boolOps{
     "aten::eq.Tensor(Tensor self, Tensor other) -> Tensor",
     "aten::eq.Scalar(Tensor self, Scalar other) -> Tensor",
@@ -189,27 +261,42 @@ static OperatorSet longOps{
     "Tensor",
 };
 
+static std::initializer_list<
+    std::pair<OperatorSet, c10::SymbolicShape (*)(INFER_PARAMS)>>
+    shapeFuncInit{
+        {atenTensorOps, inferShapeAtenTensorOps},
+        {sameShapeOps, passSameShape},
+        {rankOneOps, getRankedShape<1>},
+    };
+
+static std::initializer_list<
+    std::pair<OperatorSet, c10::ScalarType (*)(INFER_PARAMS)>>
+    dtypeFuncInit{
+        {convertOrFillOps, inferDtypeConvertOrFillOps},
+        {atenTensorOps, inferDtypeAtenTensorOps},
+        {combineOps, inferDtypeCombineOps},
+        {boolOps, [](INFER_PARAMS) { return c10::kBool; }},
+        {longOps, [](INFER_PARAMS) { return c10::kLong; }},
+    };
+
+static std::initializer_list<
+    std::pair<OperatorSet, c10::Device (*)(INFER_PARAMS)>>
+    deviceFuncInit{
+        {creationOps, inferDeviceCreationOps},
+        {combineOps, inferDeviceCombineOps},
+    };
+
 static bool initialized = false;
-OperatorMap<c10::SymbolicShape (*)(Node *, ValueTypeMap &)> shapeFuncs;
-OperatorMap<c10::ScalarType (*)(Node *, ValueTypeMap &)> dtypeFuncs;
-OperatorMap<c10::Device (*)(Node *, ValueTypeMap &)> deviceFuncs;
+OperatorMap<c10::SymbolicShape (*)(INFER_PARAMS)> shapeFuncs;
+OperatorMap<c10::ScalarType (*)(INFER_PARAMS)> dtypeFuncs;
+OperatorMap<c10::Device (*)(INFER_PARAMS)> deviceFuncs;
 
 void initTensorTypeFuncs() {
     if (initialized) return;
-
-    /* Shape functions */
-
-    /* Dtype functions */
-    dtypeFuncs.insert(convertOrFillOps, inferDtypeConvertOrFillOps);
-    dtypeFuncs.insert(atenTensorOps, inferDtypeAtenTensorOps);
-    dtypeFuncs.insert(combineOps, inferDtypeCombineOps);
-    dtypeFuncs.insert(boolOps, [](INFER_PARAMS) { return c10::kBool; });
-    dtypeFuncs.insert(longOps, [](INFER_PARAMS) { return c10::kLong; });
-
-    /* Device functions */
-    deviceFuncs.insert(creationOps, inferDeviceCreationOps);
-    deviceFuncs.insert(combineOps, inferDeviceCombineOps);
-
+    for (auto &pair : shapeFuncInit) shapeFuncs.insert(pair.first, pair.second);
+    for (auto &pair : dtypeFuncInit) dtypeFuncs.insert(pair.first, pair.second);
+    for (auto &pair : deviceFuncInit)
+        deviceFuncs.insert(pair.first, pair.second);
     initialized = true;
 }
 
