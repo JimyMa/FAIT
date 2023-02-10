@@ -1,4 +1,5 @@
 #include "common_passes.h"
+#include "parallelize_loops.h"
 #include "util/ir.h"
 #include "util/traits.h"
 
@@ -46,7 +47,8 @@ void HoistLoopInvariants(const std::shared_ptr<Graph> &graph) {
     // Collect loops in the the graph in post-order
     std::vector<Node *> loops;
     traversePostOrder(graph->block(), [&](Node *node) {
-        if (node->kind() == prim::Loop) loops.push_back(node);
+        if (node->kind() == prim::Loop || node->kind() == prim::ParallelMap)
+            loops.push_back(node);
         return true;
     });
 

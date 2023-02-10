@@ -43,8 +43,8 @@ static TypePtr convertToMatch(TypePtr src, TypePtr tgt) {
         throw typeError("Cannot convert ", *src, " to match ", *tgt);
 }
 
-static void setRefinedType(Value *value, const TypePtr &newType,
-                           ValueTypeMap &refinedTypes) {
+void setRefinedType(Value *value, const TypePtr &newType,
+                    ValueTypeMap &refinedTypes) {
     auto &uses = value->uses();
     TypePtr matched = nullptr;
     if (value->type()->kind() == TypeKind::ListType &&
@@ -55,11 +55,25 @@ static void setRefinedType(Value *value, const TypePtr &newType,
         matched = convertToMatch(newType, value->type());
         value->setType(matched);
     }
-    if (*matched != *newType) {
-        refinedTypes[value] = newType;
-        // std::cout << value->debugName() << ' ' << *matched << ' ' << *newType
-        //           << ' ' << *refinedTypes[value] << '\n';
+    if (*matched != *newType) refinedTypes[value] = newType;
+}
+
+static void markLiveValues(Block *block,
+                           std::unordered_set<Value *> &deadValues) {
+    for (auto param : block->inputs()) deadValues.erase(param);
+    for (auto node : block->nodes()) {
+        for (auto subBlock : node->blocks())
+            markLiveValues(subBlock, deadValues);
+        for (auto output : node->outputs()) deadValues.erase(output);
     }
+}
+
+void removeDeadRefinedTypes(ValueTypeMap &refinedTypes,
+                            const std::shared_ptr<Graph> &graph) {
+    std::unordered_set<Value *> deadValues;
+    for (auto &pair : refinedTypes) deadValues.insert(pair.first);
+    markLiveValues(graph->block(), deadValues);
+    for (auto dead : deadValues) refinedTypes.erase(dead);
 }
 
 void RefineInputTypes(const std::shared_ptr<Graph> &graph,
@@ -198,9 +212,13 @@ static void propagateParallelMap(TYPE_PROP_PARAMS) {
     propFunc(block, refinedTypes);
 
     // Propagate return types to output lists
+    auto lenIVal = toIValue(node->input(0));
+    auto len = mapOpt<size_t>(
+        lenIVal, [](const IValue &ival) { return size_t(ival.toInt()); });
     for (auto i = 0u; i < node->outputs().size(); i++) {
         auto ret = block->outputs()[i], outList = node->output(i);
-        setRefinedType(outList, ListType::create(ret->type()), refinedTypes);
+        setRefinedType(outList, createRefinedListType(ret->type(), len),
+                       refinedTypes);
     }
 }
 
@@ -427,6 +445,8 @@ void InferShape(const std::shared_ptr<Graph> &graph,
         if (!FoldConstantsTSSA(graph)) break;
         EliminateDeadCodeTSSA(graph);
     }
+    HoistLoopInvariants(graph);
+    EliminateCommonSubexprTSSA(graph);
 }
 
 }  // namespace jit

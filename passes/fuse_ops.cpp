@@ -1,6 +1,7 @@
 #include "fuse_ops.h"
 
-#include "passes/tensor_ssa.h"
+#include "tensor_ssa.h"
+#include "type_utils.h"
 #include "util/disjoint_set.h"
 #include "util/ir.h"
 #include "util/traits.h"
@@ -220,7 +221,8 @@ static void findGroupInOutValues(Node *head, Node *tail,
     }
 }
 
-static Node *commitFusion(Node *head, Node *tail, Block *block, Graph *graph) {
+static Node *commitFusion(Node *head, Node *tail, Graph *graph,
+                          ValueTypeMap &refinedTypes) {
     // Collect input and output values from the nodes in the group
     std::vector<Value *> inputs, outputs;
     findGroupInOutValues(head, tail, inputs, outputs);
@@ -233,6 +235,7 @@ static Node *commitFusion(Node *head, Node *tail, Block *block, Graph *graph) {
     // Replace outputs of the group
     for (auto output : outputs) {
         auto groupOut = fusionNode->addOutput()->setType(output->type());
+        transferRefinedType(output, groupOut, refinedTypes);
         output->replaceAllUsesAfterNodeWith(fusionNode, groupOut);
     }
 
@@ -240,7 +243,7 @@ static Node *commitFusion(Node *head, Node *tail, Block *block, Graph *graph) {
     std::unordered_map<Value *, Value *> valueMap;
     for (auto input : inputs) {
         auto param = fusionBlock->addInput()->setType(input->type());
-        param->setType(input->type());
+        transferRefinedType(input, param, refinedTypes);
         valueMap.insert({input, param});
     }
 
@@ -256,7 +259,7 @@ static Node *commitFusion(Node *head, Node *tail, Block *block, Graph *graph) {
     return fusionNode;
 }
 
-static void fuseOpsIn(Block *block, Graph *graph) {
+static void fuseOpsIn(Block *block, Graph *graph, ValueTypeMap &refinedTypes) {
     // Find tail node to begin with
     for (auto tail = block->return_node(), head = tail;
          tail != block->nodes().front(); tail = head) {
@@ -309,11 +312,11 @@ static void fuseOpsIn(Block *block, Graph *graph) {
         if (!shouldFuseGroup(head, tail)) continue;
 
         // Commit fusion
-        head = commitFusion(head, tail, block, graph);
+        head = commitFusion(head, tail, graph, refinedTypes);
     }
 }
 
-void FuseOps(const std::shared_ptr<Graph> &graph) {
+void FuseOps(const std::shared_ptr<Graph> &graph, ValueTypeMap &refinedTypes) {
     // Collect all blocks
     std::vector<Block *> blocks;
     blocks.push_back(graph->block());
@@ -323,7 +326,10 @@ void FuseOps(const std::shared_ptr<Graph> &graph) {
     });
 
     // Fuse operators inside blocks
-    for (auto block : blocks) fuseOpsIn(block, graph.get());
+    for (auto block : blocks) fuseOpsIn(block, graph.get(), refinedTypes);
+
+    // Remove dead values in type refinement map
+    removeDeadRefinedTypes(refinedTypes, graph);
 }
 
 }  // namespace jit
