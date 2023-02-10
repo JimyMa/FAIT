@@ -220,6 +220,7 @@ static Node *splitAt(Node *prevParMap, Node *splitNode, Graph *graph,
     // Move nodes beginning from the split point to the new map
     moveNodesToBlock(splitNode, prevBlock->return_node(), nextBlock, graph,
                      valueMap);
+    removeDeadRefinedTypes(refinedTypes, graph);
 
     // Add return values to next block
     for (auto ret : nextRets)
@@ -280,9 +281,7 @@ void SplitParallelMaps(const std::shared_ptr<Graph> &graph,
         }
         return true;
     });
-
-    // Remove dead values in type refinement map
-    removeDeadRefinedTypes(refinedTypes, graph);
+    removeDeadRefinedTypes(refinedTypes, graph.get());
 }
 
 }  // namespace jit

@@ -249,6 +249,7 @@ static Node *commitFusion(Node *head, Node *tail, Graph *graph,
 
     // Move nodes to the new block
     moveNodesToBlock(head, fusionNode, fusionBlock, graph, valueMap);
+    removeDeadRefinedTypes(refinedTypes, graph);
 
     // Handle block returns
     for (auto output : outputs) {
@@ -327,9 +328,6 @@ void FuseOps(const std::shared_ptr<Graph> &graph, ValueTypeMap &refinedTypes) {
 
     // Fuse operators inside blocks
     for (auto block : blocks) fuseOpsIn(block, graph.get(), refinedTypes);
-
-    // Remove dead values in type refinement map
-    removeDeadRefinedTypes(refinedTypes, graph);
 }
 
 }  // namespace jit

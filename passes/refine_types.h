@@ -43,8 +43,7 @@ inline void transferRefinedType(Value *src, Value *dst,
 void setRefinedType(Value *value, const TypePtr &newType,
                     ValueTypeMap &refinedTypes);
 
-void removeDeadRefinedTypes(ValueTypeMap &refinedTypes,
-                            const std::shared_ptr<Graph> &graph);
+void removeDeadRefinedTypes(ValueTypeMap &refinedTypes, Graph *graph);
 
 /// Lookup tables for tensor type refinement functions
 

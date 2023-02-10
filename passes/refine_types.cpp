@@ -68,8 +68,7 @@ static void markLiveValues(Block *block,
     }
 }
 
-void removeDeadRefinedTypes(ValueTypeMap &refinedTypes,
-                            const std::shared_ptr<Graph> &graph) {
+void removeDeadRefinedTypes(ValueTypeMap &refinedTypes, Graph *graph) {
     std::unordered_set<Value *> deadValues;
     for (auto &pair : refinedTypes) deadValues.insert(pair.first);
     markLiveValues(graph->block(), deadValues);
