@@ -38,7 +38,7 @@
 
 using namespace torch::jit::tensorexpr;
 
-bool verbose = false;
+bool verbose = true;
 
 int main() {
   // Step 0: Init CUDA Enviroment
@@ -360,13 +360,13 @@ int main() {
 
   codegen_->call(runArgs);
 
-  std::cout << sigmoid_0_runtime << std::endl;
-  std::cout << sigmoid_1_runtime << std::endl;
-  std::cout << sigmoid_2_runtime << std::endl;
-
-  std::cout << tensor_0_runtime << std::endl;
-  std::cout << tensor_1_runtime << std::endl;
-  std::cout << tensor_2_runtime << std::endl;
-
+//  std::cout << sigmoid_0_runtime << std::endl;
+//  std::cout << sigmoid_1_runtime << std::endl;
+//  std::cout << sigmoid_2_runtime << std::endl;
+//
+//  std::cout << tensor_0_runtime << std::endl;
+//  std::cout << tensor_1_runtime << std::endl;
+//  std::cout << tensor_2_runtime << std::endl;
+//
   return 0;
 }

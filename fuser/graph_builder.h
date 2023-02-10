@@ -7,15 +7,17 @@
 #include <memory>
 
 #include "torch/csrc/jit/ir/ir.h"
+//#include "torch/csrc/jit/tensorexpr/codegen.h"
 #include "torch/csrc/jit/runtime/interpreter.h"
 
+//using namespace torch::jit::tensorexpr;
 
 namespace torch {
 namespace jit {
 
 class GraphBuilder {
  public:
-  GraphBuilder(std::shared_ptr<Graph>  subgraph,
+  GraphBuilder(const Node* node,
                bool dyn_shape = true);
   void run(Stack& stack) const;
 
@@ -40,12 +42,18 @@ class GraphBuilder {
   int64_t nInputs_ = 0;
   int64_t nOutputs_ = 0;
   at::Device device_ = at::kCUDA;
+//  std::vector<CodeGen::BufferArg> BufferArgs_;
 
   std::shared_ptr<Graph> graph_;
+
+  std::vector<TypePtr> refined_types_;
+  std::vector<int64_t> is_parallelled_args_;
+
   bool dyn_shape_;
   Code code_;
   bool allow_fallback_{false};
   bool use_fallback_{false};
+  
 };
 
 }  // namespace jit

@@ -53,8 +53,10 @@ int main(int argc, const char *argv[]) {
         graph->print(tmp);
         SplitParallelMaps(graph);
         tmp = std::ofstream("after_split.rb");
+        graph->print(tmp);
         MapFunctorToParallization(graph, refinedTypes);
         tmp =std::ofstream("after_codegen.rb");
+        graph->print(tmp);
         Validate(graph);
     } catch (c10::Error &err) {
         std::cout << err.what();
