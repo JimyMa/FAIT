@@ -14,6 +14,11 @@ void EliminateDeadCodeTSSA(const std::shared_ptr<Graph> &graph);
 /// @param graph The graph to be optimized.
 void EliminateCommonSubexprTSSA(const std::shared_ptr<Graph> &graph);
 
+/// @brief Perform constant folding of the graph.
+/// @param graph The graph to be optimized.
+/// @return Whether any new constant is computed.
+bool FoldConstantsTSSA(const std::shared_ptr<Graph> &graph);
+
 /// @brief Move computation of loop invariants out of loop body.
 /// @param graph The graph to be optimized.
 void HoistLoopInvariants(const std::shared_ptr<Graph> &graph);

@@ -7,12 +7,25 @@ namespace jit {
 
 using ValueTypeMap = std::unordered_map<Value *, TypePtr>;
 
+/// @brief Refine input types of a graph
+/// @param graph The graph to be processed.
+/// @param inputTypes Detailed type information of graph inputs.
+/// @param refinedTypes The mappings for refined types.
 void RefineInputTypes(const std::shared_ptr<Graph> &graph,
                       const std::vector<TypePtr> &inputTypes,
                       ValueTypeMap &refinedTypes);
 
+/// @brief Infer data types and devices for tensor values.
+/// @param graph The graph to be processed.
+/// @param refinedTypes The mappings for refined types.
 void InferDtypeAndDevice(const std::shared_ptr<Graph> &graph,
                          ValueTypeMap &refinedTypes);
+
+/// @brief Infer shapes for tensor values.
+/// @param graph The graph to be processed.
+/// @param refinedTypes The mappings for refined types.
+void InferShape(const std::shared_ptr<Graph> &graph,
+                ValueTypeMap &refinedTypes);
 
 /// Lookup tables for tensor type refinement functions
 
