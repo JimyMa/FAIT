@@ -1,5 +1,6 @@
 #include "parallelize_loops.h"
 
+#include "type_utils.h"
 #include "util/ir.h"
 #include "util/traits.h"
 
@@ -137,7 +138,8 @@ void ParallelizeLoops(const std::shared_ptr<Graph> &graph) {
     for (auto loop : loops) convertLoopToMap(loop, graph.get());
 }
 
-static Node *splitAt(Node *prevParMap, Node *splitNode, Graph *graph) {
+static Node *splitAt(Node *prevParMap, Node *splitNode, Graph *graph,
+                     ValueTypeMap &refinedTypes) {
     // Find straight returns and dependent values of previous map
     std::unordered_set<Value *> prevStraightRets;
     std::vector<Value *> nextDepPrevs;
@@ -170,6 +172,7 @@ static Node *splitAt(Node *prevParMap, Node *splitNode, Graph *graph) {
         auto prevIn = prevParMap->input(i), prevParam = prevBlock->inputs()[i];
         nextParMap->addInput(prevIn);
         auto nextParam = nextBlock->addInput()->setType(prevParam->type());
+        transferRefinedType(prevParam, nextParam, refinedTypes);
         valueMap.insert({prevParam, nextParam});
     }
 
@@ -181,6 +184,7 @@ static Node *splitAt(Node *prevParMap, Node *splitNode, Graph *graph) {
             // move to next map
             nextRets.push_back(prevRet);
             auto nextOut = nextParMap->addOutput()->setType(prevOut->type());
+            transferRefinedType(prevOut, nextOut, refinedTypes);
             prevOut->replaceAllUsesWith(nextOut);
             prevBlock->eraseOutput(i);
             prevParMap->eraseOutput(i);
@@ -191,6 +195,7 @@ static Node *splitAt(Node *prevParMap, Node *splitNode, Graph *graph) {
                 nextParMap->addInput(prevOut);
                 auto nextParam =
                     nextBlock->addInput()->setType(prevRet->type());
+                transferRefinedType(prevRet, nextParam, refinedTypes);
                 valueMap.insert({prevRet, nextParam});
             }
             i++;  // keep return and output
@@ -203,14 +208,19 @@ static Node *splitAt(Node *prevParMap, Node *splitNode, Graph *graph) {
         prevBlock->insertOutput(prevBlock->outputs().size(), dep);
         auto prevOut =
             prevParMap->addOutput()->setType(ListType::create(dep->type()));
+        auto refinedListTy =
+            createRefinedListType(dep->type(), getParMapTripCount(prevParMap));
+        setRefinedType(prevOut, refinedListTy, refinedTypes);
         nextParMap->addInput(prevOut);
         auto nextParam = nextBlock->addInput()->setType(dep->type());
+        transferRefinedType(dep, nextParam, refinedTypes);
         valueMap.insert({dep, nextParam});
     }
 
     // Move nodes beginning from the split point to the new map
     moveNodesToBlock(splitNode, prevBlock->return_node(), nextBlock, graph,
                      valueMap);
+    removeDeadRefinedTypes(refinedTypes, graph);
 
     // Add return values to next block
     for (auto ret : nextRets)
@@ -219,7 +229,8 @@ static Node *splitAt(Node *prevParMap, Node *splitNode, Graph *graph) {
     return nextParMap;
 }
 
-static void splitParallelMap(Node *curParMap, Graph *graph) {
+static void splitParallelMap(Node *curParMap, Graph *graph,
+                             ValueTypeMap &refinedTypes) {
     // Find fusion group and split parallel map
     auto mapBlock = curParMap->blocks().front();
     for (auto node = mapBlock->nodes().front(); node != mapBlock->return_node();
@@ -229,21 +240,22 @@ static void splitParallelMap(Node *curParMap, Graph *graph) {
 
         // Split before the group
         if (node->prev()->kind() != prim::Param) {
-            curParMap = splitAt(curParMap, node, graph);
+            curParMap = splitAt(curParMap, node, graph, refinedTypes);
             mapBlock = curParMap->blocks().front();
             node = mapBlock->param_node()->next();
         }
 
         // Split after the group
         if (node->next()->kind() != prim::Return) {
-            curParMap = splitAt(curParMap, node->next(), graph);
+            curParMap = splitAt(curParMap, node->next(), graph, refinedTypes);
             mapBlock = curParMap->blocks().front();
             node = mapBlock->param_node();
         }
     }
 }
 
-void SplitParallelMaps(const std::shared_ptr<Graph> &graph) {
+void SplitParallelMaps(const std::shared_ptr<Graph> &graph,
+                       ValueTypeMap &refinedTypes) {
     // Find all parallel maps
     std::vector<Node *> parMaps;
     traversePostOrder(graph->block(), [&](Node *node) {
@@ -252,7 +264,8 @@ void SplitParallelMaps(const std::shared_ptr<Graph> &graph) {
     });
 
     // Split parallel maps for fusion groups
-    for (auto parMap : parMaps) splitParallelMap(parMap, graph.get());
+    for (auto parMap : parMaps)
+        splitParallelMap(parMap, graph.get(), refinedTypes);
 
     // Remove unused map inputs and block parameters
     traversePostOrder(graph->block(), [](Node *node) {
@@ -268,6 +281,7 @@ void SplitParallelMaps(const std::shared_ptr<Graph> &graph) {
         }
         return true;
     });
+    removeDeadRefinedTypes(refinedTypes, graph.get());
 }
 
 }  // namespace jit

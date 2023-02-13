@@ -164,10 +164,103 @@ static c10::ScalarType inferDtypeTensorOps(INFER_PARAMS) {
         TORCH_INTERNAL_ASSERT(typeKindsToScalarTypes.count(elemTy->kind()));
         return typeKindsToScalarTypes[elemTy->kind()];
     } else {
-        throw c10::TypeError("Cannot infer data type for input %" +
-                                 value->debugName() + " of `aten::tensor`",
-                             c10::get_backtrace());
+        throw typeError("Cannot infer data type for input %",
+                        value->debugName(), " of `aten::tensor`",
+                        c10::get_backtrace());
     }
+}
+
+static OperatorSet newOps{
+    "aten::new_zeros(Tensor self, SymInt[] size, *, ScalarType? dtype=None, "
+    "Layout? layout=None, Device? device=None, bool? pin_memory=None) -> "
+    "Tensor",
+};
+
+static c10::SymbolicShape inferShapeNewOps(INFER_PARAMS) {
+    auto size = getIntList(node->input(1));
+    if (!size) return {};
+    return *size;
+}
+
+static OperatorSet bcastOps{
+    "aten::add.Tensor(Tensor self, Tensor other, *, Scalar alpha=1) -> Tensor",
+    "aten::sub.Tensor(Tensor self, Tensor other, *, Scalar alpha=1) -> Tensor",
+    "aten::mul.Tensor(Tensor self, Tensor other) -> Tensor",
+    "aten::div.Tensor(Tensor self, Tensor other) -> Tensor",
+    "aten::minimum(Tensor self, Tensor other) -> Tensor",
+    "aten::maximum(Tensor self, Tensor other) -> Tensor",
+    "aten::eq.Tensor(Tensor self, Tensor other) -> Tensor",
+    "aten::ne.Tensor(Tensor self, Tensor other) -> Tensor",
+    "aten::lt.Tensor(Tensor self, Tensor other) -> Tensor",
+    "aten::gt.Tensor(Tensor self, Tensor other) -> Tensor",
+    "aten::ge.Tensor(Tensor self, Tensor other) -> Tensor",
+};
+
+static ShapeDim bcastDim(const ShapeDim &lhs, const ShapeDim &rhs) {
+    // Not clear if neither dimension is known
+    if (!lhs && !rhs) return c10::nullopt;
+
+    // Select the larger dimension size if both are known
+    if (lhs && rhs) return std::max(*lhs, *rhs);
+
+    // Infer if only one dimension is known
+    if (lhs) {
+        if (*lhs > 1)
+            return lhs;
+        else
+            return c10::nullopt;
+    } else {
+        if (*rhs > 1)
+            return rhs;
+        else
+            return c10::nullopt;
+    }
+
+    return c10::nullopt;
+}
+
+static c10::SymbolicShape inferShapeBcastOps(INFER_PARAMS) {
+    // Process input shapes
+    auto lShape = getShape(node->input(0)->type()),
+         rShape = getShape(node->input(1)->type());
+    if (!lShape || !rShape) return {};
+    int64_t lRank = lShape->size(), rRank = rShape->size();
+
+    // Infer output shape
+    auto outRank = std::max(lRank, rRank);
+    ShapeVec outShape(size_t(outRank), c10::nullopt);
+    for (auto i : c10::irange(outRank)) {
+        auto lIdx = lRank - 1 - i, rIdx = rRank - 1 - i;
+        ShapeDim outDim;
+        if (lIdx < 0)
+            outDim = rShape->at(rIdx);
+        else if (rIdx < 0)
+            outDim = lShape->at(lIdx);
+        else
+            outDim = bcastDim(lShape->at(lIdx), rShape->at(rIdx));
+        outShape[outRank - 1 - i] = outDim;
+    }
+
+    return outShape;
+}
+
+static OperatorSet selectOp{
+    "aten::select.int(Tensor(a) self, int dim, int index) -> Tensor(a)",
+};
+
+static c10::SymbolicShape inferShapeSelectOp(INFER_PARAMS) {
+    // Process argument
+    auto inShape = getShape(node->input(0)->type());
+    if (!inShape) return {};
+    auto rank = inShape->size();
+    auto dimIVal = toIValue(node->input(1));
+    if (!dimIVal) return getRankedShape(rank - 1);
+    auto dim = dimIVal->toInt();
+    if (dim < 0) dim += rank;
+
+    // Infer output shape
+    inShape->erase(inShape->begin() + dim);
+    return *inShape;
 }
 
 static c10::optional<int64_t> refineDimSizeIndex(
@@ -215,7 +308,7 @@ static c10::SymbolicShape inferShapeSliceOp(INFER_PARAMS) {
     // Compute output shape
     ShapeVec outShape;
     for (auto i : c10::irange(rank)) {
-        c10::optional<int64_t> size;
+        ShapeDim size;
         if (i == dim)
             size = outDimSize;
         else
@@ -224,6 +317,46 @@ static c10::SymbolicShape inferShapeSliceOp(INFER_PARAMS) {
     }
 
     return outShape;
+}
+
+static OperatorSet squeezeOp{
+    "aten::squeeze.dim(Tensor(a) self, int dim) -> Tensor(a)",
+};
+
+static c10::SymbolicShape inferShapeSqueezeOp(INFER_PARAMS) {
+    // Process arguments
+    auto inShape = getShape(node->input(0)->type());
+    if (!inShape) return {};
+    auto rank = inShape->size();
+    auto dimIVal = toIValue(node->input(1));
+    if (!dimIVal) return {};
+    auto dim = dimIVal->toInt();
+    if (dim < 0) dim += rank;
+
+    // Remove dimension from shape
+    auto dimSize = inShape->at(dim);
+    if (!dimSize) return {};
+    if (*dimSize == 1) inShape->erase(inShape->begin() + dim);
+    return *inShape;
+}
+
+static OperatorSet unsqueezeOp{
+    "aten::unsqueeze(Tensor(a) self, int dim) -> Tensor(a)",
+};
+
+static c10::SymbolicShape inferShapeUnsqueezeOp(INFER_PARAMS) {
+    // Process arguments
+    auto inShape = getShape(node->input(0)->type());
+    if (!inShape) return {};
+    auto rank = inShape->size();
+    auto dimIVal = toIValue(node->input(1));
+    if (!dimIVal) return getRankedShape(rank + 1);
+    auto dim = dimIVal->toInt();
+    if (dim < 0) dim += rank + 1;
+
+    // Insert dimension to shape
+    inShape->insert(inShape->begin() + dim, 1);
+    return *inShape;
 }
 
 static OperatorSet reshapeOps{
@@ -255,7 +388,7 @@ static c10::SymbolicShape inferShapePermuteOp(INFER_PARAMS) {
     ShapeVec outShape;
     for (auto i : c10::irange(dims->size())) {
         auto dimIdx = dims->at(i);
-        c10::optional<int64_t> shapeDim;
+        ShapeDim shapeDim;
         if (dimIdx) shapeDim = inShape->at(*dimIdx);
         outShape.push_back(shapeDim);
     }
@@ -382,7 +515,7 @@ static c10::SymbolicShape inferShapeCatOp(INFER_PARAMS) {
             TORCH_INTERNAL_ASSERT(accum->size() == newShape->size());
             for (auto i : c10::irange(accum->size())) {
                 const auto &accumDim = accum->at(i), &newDim = newShape->at(i);
-                c10::optional<int64_t> outDim;
+                ShapeDim outDim;
                 if (i == dim)
                     outDim = tryApply<int64_t>(std::plus<int64_t>(), accumDim,
                                                newDim);
@@ -435,6 +568,35 @@ static c10::SymbolicShape inferShapeStackOp(INFER_PARAMS) {
     return shape;
 }
 
+static OperatorSet indexOp{
+    "aten::index.Tensor(Tensor self, Tensor?[] indices) -> Tensor",
+};
+
+static c10::SymbolicShape inferShapeIndexOp(INFER_PARAMS) {
+    // Only support advanced indexing with exactly one tensor in `indices` and
+    // the indexing tensor should have rank 1.
+    auto selfShape = getShape(node->input(0)->type());
+    if (!selfShape) return {};
+    TORCH_INTERNAL_ASSERT(*getListLen(node->input(1), refinedTypes) == 1);
+    auto indexTy =
+        getElementType(getRefinedType(node->input(1), refinedTypes), 0)
+            ->cast<TensorType>();
+    if (!indexTy->dim()) return {};
+    TORCH_INTERNAL_ASSERT(*indexTy->dim() == 1);
+    selfShape->at(0) = c10::nullopt;
+    return *selfShape;
+}
+
+static OperatorSet nonzeroOp{
+    "aten::nonzero(Tensor self) -> Tensor",
+};
+
+static c10::SymbolicShape inferShapeNonzeroOp(INFER_PARAMS) {
+    auto inRank = mapOpt<int64_t>(getRank(node->input(0)->type()),
+                                  [](size_t r) { return int64_t(r); });
+    return ShapeVec{c10::nullopt, inRank};
+}
+
 static OperatorSet sameShapeOps{
     "aten::to.device(Tensor(a) self, Device device, ScalarType dtype, bool "
     "non_blocking=False, bool copy=False, MemoryFormat? memory_format=None) -> "
@@ -467,6 +629,14 @@ static OperatorSet sameShapeOps{
 static c10::SymbolicShape passSameShape(INFER_PARAMS) {
     return node->input(0)->type()->cast<TensorType>()->symbolic_sizes();
 }
+
+static OperatorSet rankZeroOps{
+    "aten::max(Tensor self) -> Tensor",
+    "aten::min(Tensor self) -> Tensor",
+    "aten::sum(Tensor self, *, ScalarType? dtype=None) -> Tensor",
+    "aten::mean(Tensor self, *, ScalarType? dtype=None) -> Tensor",
+    "aten::prod(Tensor self, *, ScalarType? dtype=None) -> Tensor",
+};
 
 static OperatorSet rankOneOps{
     "aten::arange(Scalar end, *, ScalarType? dtype=None, Layout? layout=None, "
@@ -502,14 +672,22 @@ static std::initializer_list<
     std::pair<OperatorSet, c10::SymbolicShape (*)(INFER_PARAMS)>>
     shapeFuncInit{
         {tensorOps, inferShapeTensorOps},
+        {newOps, inferShapeNewOps},
+        {bcastOps, inferShapeBcastOps},
+        {selectOp, inferShapeSelectOp},
         {sliceOp, inferShapeSliceOp},
+        {squeezeOp, inferShapeSqueezeOp},
+        {unsqueezeOp, inferShapeUnsqueezeOp},
         {reshapeOps, inferShapeReshapeOps},
         {permuteOp, inferShapePermuteOp},
         {expandOp, inferShapeExpandOp},
         {repeatOp, inferShapeRepeatOp},
         {catOp, inferShapeCatOp},
         {stackOp, inferShapeStackOp},
+        {indexOp, inferShapeIndexOp},
+        {nonzeroOp, inferShapeNonzeroOp},
         {sameShapeOps, passSameShape},
+        {rankZeroOps, [](INFER_PARAMS) { return getRankedShape(0); }},
         {rankOneOps, [](INFER_PARAMS) { return getRankedShape(1); }},
     };
 
