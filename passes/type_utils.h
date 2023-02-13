@@ -10,7 +10,8 @@
 namespace torch {
 namespace jit {
 
-using ShapeVec = std::vector<c10::optional<int64_t>>;
+using ShapeDim = c10::optional<int64_t>;
+using ShapeVec = std::vector<ShapeDim>;
 
 template <class... Args>
 inline c10::TypeError typeError(Args &&...args) {
@@ -28,7 +29,7 @@ inline auto getShape(const TypePtr &tensorTy) {
 
 inline auto getRank(const TypePtr &tensorTy) {
     TORCH_INTERNAL_ASSERT(tensorTy->kind() == TypeKind::TensorType);
-    return tensorTy->cast<TensorType>()->sizes().size();
+    return tensorTy->cast<TensorType>()->dim();
 }
 
 inline c10::SymbolicShape getRankedShape(size_t rank) {

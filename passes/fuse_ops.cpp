@@ -25,6 +25,9 @@ OperatorSet fusableOps{
     "bool copy=False, MemoryFormat? memory_format=None) -> Tensor(a)",
     "aten::to.other(Tensor(a) self, Tensor other, bool non_blocking=False, "
     "bool copy=False, MemoryFormat? memory_format=None) -> Tensor(a)",
+    "aten::new_zeros(Tensor self, SymInt[] size, *, ScalarType? dtype=None, "
+    "Layout? layout=None, Device? device=None, bool? pin_memory=None) -> "
+    "Tensor",
     "aten::arange(Scalar end, *, ScalarType? dtype=None, Layout? layout=None, "
     "Device? device=None, bool? pin_memory=None) -> Tensor",
     "aten::arange.start(Scalar start, Scalar end, *, ScalarType? dtype=None, "

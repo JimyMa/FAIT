@@ -7,18 +7,18 @@
 namespace torch {
 namespace jit {
 template <class Stream>
-inline void dump(Stream &stream) {}
+inline void print(Stream &stream) {}
 
 template <class Stream, class Arg, class... Args>
-inline void dump(Stream &stream, Arg &&arg, Args &&...args) {
+inline void print(Stream &stream, Arg &&arg, Args &&...args) {
     stream << arg;
-    dump(stream, std::forward<Args>(args)...);
+    print(stream, std::forward<Args>(args)...);
 }
 
 template <class Error, class... Args>
 inline Error error(Args &&...args) {
     std::stringstream ss;
-    dump(ss, std::forward<Args>(args)...);
+    print(ss, std::forward<Args>(args)...);
     return Error(ss.str(), c10::get_backtrace(1));
 }
 
