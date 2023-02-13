@@ -174,7 +174,7 @@ int main() {
   auto new_loop_axis = VarHandle("new_axis_i", kLong);
   stmt_ = alloc<For>(new_loop_axis.node(),
                      LongImm::make(0).node(),
-                     LongImm::make(5).node(),
+                     LongImm::make(3).node(),
                      stmt_);
   static_to<For>(stmt_)->set_gpu_block_index(1);
 

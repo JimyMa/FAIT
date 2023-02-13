@@ -6,11 +6,17 @@
 #define LONG_TAIL_GRAPH_BUILDER_H
 #include <memory>
 
-#include "torch/csrc/jit/ir/ir.h"
-//#include "torch/csrc/jit/tensorexpr/codegen.h"
-#include "torch/csrc/jit/runtime/interpreter.h"
+#include "passes/tensor_ssa.h"
+#include "fuser/tssa_nnc_func.h"
 
-//using namespace torch::jit::tensorexpr;
+#include <torch/csrc/jit/ir/ir.h>
+#include <torch/csrc/jit/runtime/interpreter.h>
+#include <torch/csrc/jit/tensorexpr/analysis.h>
+#include <torch/csrc/jit/tensorexpr/codegen.h>
+#include <torch/csrc/jit/tensorexpr/lowerings.h>
+#include <torch/csrc/jit/tensorexpr/tensor.h>
+
+using namespace torch::jit::tensorexpr;
 
 namespace torch {
 namespace jit {
@@ -25,10 +31,6 @@ class GraphBuilder {
     const std::vector<void*>& inputs,
     const std::vector<void*>& outputs) const;
 
-  void fallback(Stack& stack) const {
-    InterpreterState(code_).run(stack);
-  }
-
   void recompile();
 
   const std::shared_ptr<Graph> graph() {
@@ -39,21 +41,38 @@ class GraphBuilder {
   void compile();
   void runKernel(Stack& stack) const;
 
-  int64_t nInputs_ = 0;
-  int64_t nOutputs_ = 0;
-  at::Device device_ = at::kCUDA;
-//  std::vector<CodeGen::BufferArg> BufferArgs_;
+  bool verbose_ = true;
 
-  std::shared_ptr<Graph> graph_;
-
+  int64_t degree_ = 1;
   std::vector<TypePtr> refined_types_;
   std::vector<int64_t> is_parallelled_args_;
 
-  bool dyn_shape_;
-  Code code_;
-  bool allow_fallback_{false};
-  bool use_fallback_{false};
-  
+  std::vector<CodeGen::BufferArg> FunctorInputBufferArgs_;
+  std::vector<CodeGen::BufferArg> FunctorInputShapeArgs_;
+  std::vector<CodeGen::BufferArg> FunctorOutputBufferReturns_;
+  std::vector<CodeGen::BufferArg> ParallelBufferArgs_;
+
+  std::unordered_map<BufPtr, std::vector<BufHandle>> LoadBufParallelFunctorMap;
+  std::unordered_map<VarPtr, std::vector<VarHandle>> LoadVarParallelFunctorMap;
+  std::unordered_map<VarPtr, std::vector<VarHandle>> ShapeVarParallelFunctorMap;
+  std::unordered_map<BufPtr, std::vector<BufHandle>> StoreBufParallelFunctorMap;
+
+  int64_t nInputs_ = 0;
+  int64_t nOutputs_ = 0;
+  at::Device device_ = at::kCUDA;
+  std::vector<CodeGen::BufferArg> BufferArgs_;
+
+  std::unordered_set<BufPtr> bufOutputs_;
+
+  std::shared_ptr<Graph> graph_;
+
+  std::unordered_map<const torch::jit::Value*, BufPtr> bufs_;
+  std::unordered_map<const torch::jit::Value*, VarHandle> scalars_;
+
+  std::unordered_map<c10::Symbol, NNCLoweringFunction>
+  custom_lowerings_ = {{c10::tssa::Assign, computeAssign}};
+
+  std::unique_ptr<CodeGen> codegen_;
 };
 
 }  // namespace jit
