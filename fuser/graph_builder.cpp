@@ -54,7 +54,7 @@ void GraphBuilder::compile() {
   // For Dyn shape, use it by VarHandle.
 
   // Step 1: Bind inputs to buffers.
-    auto block = alloc<torch::jit::tensorexpr::Block>(std::vector<StmtPtr>({}));
+  auto block = alloc<torch::jit::tensorexpr::Block>(std::vector<StmtPtr>({}));
 
   // TODO: Get Shape VarHandle
   auto N = LongImm::make(1);

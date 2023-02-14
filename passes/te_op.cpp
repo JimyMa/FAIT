@@ -1,6 +1,7 @@
 //
 // Created by jimyma on 1/27/23.
 //
+#include "passes/type_utils.h"
 #include "torch/csrc/jit/runtime/custom_operator.h"
 
 #include "util/ir.h"
@@ -33,10 +34,11 @@ Node* GetParallelledFunctorByParallelMap(Node* node,
     // get list size
     if (refine_types.count(input_)) {
       auto type = refine_types[input_];
-      input_refine_types.push_back(type);
       AT_ASSERT(type->kind() == c10::TypeKind::TupleType,
                 "ParallelMap input(,", input_->debugName(), ") must be union type by now, but get "
                 , type->annotation_str());
+      auto union_type = getUnifiedElementType(type);
+      input_refine_types.push_back(union_type);
       if (input_degree != -1) {
         AT_ASSERT(input_degree == type->cast<c10::TupleType>()->elements().size(),
                   "Input List in ParallelMap must have same input_degree!");
@@ -87,7 +89,6 @@ Node* GetParallelledFunctorByParallelMap(Node* node,
     auto subgraph_input = subgraph->addInput();
     subgraph_input->copyMetadata(input_);
     values_map[input_] = subgraph_input;
-    std::cout << input_->type()->annotation_str() << std::endl;
   }
 
   for (auto fusion_group_node : fusion_group->blocks()[0]->nodes()) {
