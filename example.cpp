@@ -11,6 +11,12 @@
 
 using namespace torch::jit;
 
+static void dumpGraphToFile(const std::shared_ptr<Graph> &graph,
+                            const std::string &path) {
+    std::ofstream ofs(path);
+    graph->print(ofs);
+}
+
 int main(int argc, const char *argv[]) {
     if (argc < 2) {
         std::cerr << "usage: example <path-to-script-module>\n";
@@ -31,23 +37,24 @@ int main(int argc, const char *argv[]) {
         TensorType::createContiguous(c10::kFloat, c10::kCUDA, {1, 255, 20, 20}),
         TensorType::createContiguous(c10::kFloat, c10::kCUDA, {1, 255, 40, 40}),
     })};
-    std::unordered_map<Value *, TypePtr> refinedTypes;
+    ValueTypeMap refinedTypes;
     try {
         Freeze(&mod);
         auto graph = mod.get_method("forward").graph();
         RefineInputTypes(graph, inputTypes, refinedTypes);
         ToTensorSSA(graph);
-        graph->print(std::ofstream("after_tssa.rb"));
+        dumpGraphToFile(graph, "after_tssa.rb");
         HoistLoopInvariants(graph);
         EliminateCommonSubexprTSSA(graph);
-        graph->print(std::ofstream("after_cse.rb"));
+        dumpGraphToFile(graph, "after_cse.rb");
         ParallelizeLoops(graph);
         InferDtypeAndDevice(graph, refinedTypes);
-        graph->print(std::ofstream("after_par.rb"));
-        FuseOps(graph);
-        graph->print(std::ofstream("after_fuse.rb"));
-        SplitParallelMaps(graph);
-        graph->print(std::ofstream("after_split.rb"));
+        InferShape(graph, refinedTypes);
+        dumpGraphToFile(graph, "after_par.rb");
+        FuseOps(graph, refinedTypes);
+        dumpGraphToFile(graph, "after_fuse.rb");
+        SplitParallelMaps(graph, refinedTypes);
+        dumpGraphToFile(graph, "after_split.rb");
         Validate(graph);
     } catch (c10::Error &err) {
         std::cout << err.what();
