@@ -1,4 +1,13 @@
+#include <ATen/Context.h>
+#include <ATen/ATen.h>
+
+#include <ATen/core/ivalue.h>
+#include <ATen/core/jit_type.h>
+#include <c10/core/DeviceType.h>
+#include <c10/core/ScalarType.h>
+#include <torch/csrc/jit/ir/ir.h>
 #include <torch/csrc/jit/serialization/import.h>
+#include <torch/csrc/jit/runtime/interpreter.h>
 #include <torchvision/vision.h>
 
 #include "passes/common_passes.h"
@@ -19,6 +28,7 @@ static void dumpGraphToFile(const std::shared_ptr<Graph> &graph,
 }
 
 int main(int argc, const char *argv[]) {
+    at::globalContext().lazyInitCUDA();
     if (argc < 2) {
         std::cerr << "usage: example <path-to-script-module>\n";
         return 1;
@@ -33,6 +43,8 @@ int main(int argc, const char *argv[]) {
         std::cerr << e.what();
         return 1;
     }
+    Freeze(&mod);
+        auto graph = mod.get_method("forward").graph();
     std::vector<TypePtr> inputTypes{TupleType::create({
         TensorType::createContiguous(c10::kFloat, c10::kCUDA, {1, 255, 10, 10}),
         TensorType::createContiguous(c10::kFloat, c10::kCUDA, {1, 255, 20, 20}),
@@ -40,8 +52,6 @@ int main(int argc, const char *argv[]) {
     })};
     ValueTypeMap refinedTypes;
     try {
-        Freeze(&mod);
-        auto graph = mod.get_method("forward").graph();
         RefineInputTypes(graph, inputTypes, refinedTypes);
         ToTensorSSA(graph);
         dumpGraphToFile(graph, "after_tssa.rb");
@@ -62,4 +72,24 @@ int main(int argc, const char *argv[]) {
     } catch (c10::Error &err) {
         std::cout << err.what();
     }
+
+    // Runtime
+    at::List<at::Tensor> a_list = {at::ones({10, 10}).to(at::kFloat).cuda() * 0,
+                               at::ones({20, 20}).to(at::kFloat).cuda() * 1,
+                               at::ones({40, 40}).to(at::kFloat).cuda() * 2};
+    at::List<double> b_list = {2.0, 3, 4};
+    graph->dump();
+    Code code(graph, "");
+    Stack input = {"", a_list, b_list};
+    torch::jit::InterpreterState(code).run(input);
+    std::cout << input[0].toTensorList()[0] << std::endl;
+    std::cout << input[0].toTensorList()[1] << std::endl;
+    std::cout << input[0].toTensorList()[2] << std::endl;
+    // for (int i = 0; i < 3; i++) {
+    //     input = {"", a_list, b_list};
+    //     InterpreterState(code).run(input);
+    //     std::cout << input[0].toTensorList()[0] << std::endl;
+    //     std::cout << input[0].toTensorList()[1] << std::endl;
+    // }
+    
 }

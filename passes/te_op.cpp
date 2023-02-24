@@ -22,7 +22,6 @@ Node* GetParallelledFunctorByParallelMap(Node* node,
 
   auto subgraph = functor_op->g(attr::Subgraph);
 
-
   // Get input_degree by tuple lengths, not by iter_times.
   auto iter_times = node->inputs()[0];
 
@@ -109,7 +108,7 @@ Node* GetParallelledFunctorByParallelMap(Node* node,
   for (auto output : fusion_group->blocks()[0]->outputs()) {
     subgraph->registerOutput(values_map[output]);
   }
-
+  
   return functor_op;
 }
 

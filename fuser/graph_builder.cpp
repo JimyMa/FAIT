@@ -1,6 +1,21 @@
 //
 // Created by jimyma on 1/27/23.
 //
+#include <ATen/core/List.h>
+#include <ATen/core/TensorBody.h>
+#include <ATen/core/interned_strings.h>
+#include <ATen/core/jit_type.h>
+#include <ATen/core/jit_type_base.h>
+#include <ATen/core/stack.h>
+#include <c10/core/DeviceType.h>
+#include <c10/core/ScalarType.h>
+#include <c10/util/Exception.h>
+#include <torch/csrc/jit/ir/constants.h>
+#include <torch/csrc/jit/tensorexpr/exceptions.h>
+#include <torch/csrc/jit/tensorexpr/fwd_decls.h>
+#include <torch/csrc/jit/tensorexpr/ir.h>
+#include <torch/csrc/jit/tensorexpr/types.h>
+#include <unordered_map>
 #include <utility>
 
 #include <c10/util/variant.h>
@@ -22,7 +37,9 @@
 #include <torch/csrc/jit/tensorexpr/ir_simplifier.h>
 #include <torch/csrc/jit/tensorexpr/loopnest.h>
 #include <torch/csrc/jit/tensorexpr/loopnest_randomization.h>
+#include <torch/csrc/jit/tensorexpr/lowerings.h>
 #include <torch/csrc/jit/tensorexpr/operators/operators.h>
+
 
 #include "passes/te_op.h"
 #include "fuser/graph_builder.h"
@@ -33,11 +50,49 @@ using namespace torch::jit::tensorexpr;
 namespace torch {
 namespace jit {
 
-GraphBuilder::GraphBuilder(const Node* node,
-                           bool dyn_shape)
+std::vector<int64_t>
+GraphBuilder::get_stride_by_shape(const std::vector<int64_t> shape) const {
+  std::vector<int64_t> result;
+  int64_t base = 1;
+  for (int i = shape.size() - 1; i >= 0; i--) {
+    result.insert(result.begin(), base);
+    base *= shape[i];
+  }
+  return result;
+}
+
+std::vector<ExprHandle>
+GraphBuilder::get_stride_by_expr_dims(const std::vector<ExprHandle> expr_shape) const {
+  std::vector<ExprHandle> result;
+    ExprHandle base = LongImm::make(1);
+    for (int i = expr_shape.size() - 1; i >= 0; i--) {
+      result.push_back(base);
+      base = base * expr_shape[i];
+    }
+    return result;
+}
+
+Dtype
+GraphBuilder::get_scalar_type_by_value_type(TypePtr value_type) {
+  std::unordered_map<TypeKind, ScalarType> type_map = {
+    {TypeKind::FloatType, ScalarType::Float},
+    {TypeKind::IntType, ScalarType::Int},
+    {TypeKind::BoolType, ScalarType::Bool}
+  };
+  return ToDtype(type_map[value_type->kind()]);
+}
+
+VarHandle
+GraphBuilder::get_const_var_by_value(const Value* value) {
+  Dtype scalar_type = get_scalar_type_by_value_type(value->type());
+  return VarHandle(set_hash_name("Const"), scalar_type);
+}
+
+GraphBuilder::GraphBuilder(const Node* node)
         : graph_(node->g(attr::Subgraph)),
           refined_types_(node->tys(c10::tssa::input_refine_types)),
-          is_parallelled_args_(node->is(c10::tssa::is_parallelled_args)) {
+          is_parallelled_args_(node->is(c10::tssa::is_parallelled_args)),
+          degree_(node->i(c10::tssa::parallel_degree)) {
   try {
     compile();
   } catch (...) {
@@ -57,47 +112,156 @@ void GraphBuilder::compile() {
   auto block = alloc<torch::jit::tensorexpr::Block>(std::vector<StmtPtr>({}));
 
   // TODO: Get Shape VarHandle
-  auto N = LongImm::make(1);
-  auto C = LongImm::make(255);
-  auto H = VarHandle("H", kLong);
-  auto W = VarHandle("W", kLong);
-
-  for (int i = 0; i < graph_->inputs().size(); i++) {
-    auto is_parallelled = true;
-    Value* input_ = graph_->inputs()[i];
-
-    BufHandle input_buffer(input_->debugName(), {N, C, H, W}, kDouble);
-    BufferArgs_.emplace_back(input_buffer);
-
-    bufs_[input_] = input_buffer.node();
-  }
-
-  // Step 2: Bind Node to Compute Op
-  std::vector<ArgValue> inputs_expr;
-  for (auto node : graph_->nodes()) {
-    for (auto input_ : node->inputs()) {
-      inputs_expr.emplace_back(BufHandle(bufs_[input_]));
+  auto parallel_args_idx = 0;
+  auto graph_args_idx = 0;
+  for (auto is_paralleled_arg : is_parallelled_args_) {
+    auto graph_arg = graph_->inputs()[graph_args_idx];
+    graph_args_idx += 1;
+    if (is_paralleled_arg) {
+      auto type_arg = refined_types_[parallel_args_idx];
+      parallel_args_idx += 1;
+      if (auto tensor_type_arg = type_arg->cast<TensorType>()) {
+        auto symbolic_dims = tensor_type_arg->symbolic_sizes();
+        std::vector<ExprHandle> value_dims_expr;
+        for (int i = 0; i < symbolic_dims.rank(); i++) {
+          if (symbolic_dims[i].is_static()) {
+            value_dims_expr.push_back(LongImm::make(symbolic_dims[i].value()));
+          } else {
+            value_dims_expr.push_back(VarHandle(set_hash_name("dim"), kLong));
+          }
+        }
+        FunctorShapeMap_[graph_arg] = value_dims_expr;
+      }
     }
-    auto output_tensor = custom_lowerings_[c10::tssa::Assign]({},
-                                                              {},
-                                                              {},
-                                                              ScalarType::Float,
-                                                              at::kCUDA);
-
-    if (output_tensor.buf())
-      bufs_[node->output(0)] = output_tensor.buf();
-    block->append_stmt(output_tensor.stmt());
   }
 
+
+  // Input Buffer
+  std::cout << "Input Buffer begin" << std::endl;
+  for (auto input_ : graph_->inputs()) {
+    // AT_ASSERT(input_->type()->cast<TensorType>(), "Parallel Functor Only Tensor Type are Supported by now");
+    // AT_ASSERT(input_->type()->cast<TensorType>()->scalarType().has_value(), "ScalarType must be complete");
+    
+    switch (input_->type()->kind()) {
+      case TypeKind::TensorType: {
+        BufHandle input_buf(set_hash_name("InputBuf"), 
+                            FunctorShapeMap_[input_], 
+                          ToDtype(input_->type()->cast<TensorType>()->scalarType().value()));
+        bufs_[input_] = input_buf.node();
+        break;
+      }
+      case TypeKind::FloatType: {
+        VarHandle v(set_hash_name("InputVar"), kDouble);
+        vars_[input_] = v.node();
+        break;
+      }
+      case TypeKind::BoolType: {
+        VarHandle v(set_hash_name("InputVar"), kBool);
+        vars_[input_] = v.node();
+        break;
+      }
+      case TypeKind::IntType: {
+        VarHandle v(set_hash_name("InputVar"), kLong);
+        vars_[input_] = v.node();
+        break;
+      }
+      default: {
+        throw unsupported_dtype(input_->type()->repr_str());
+        break;
+      }
+    }
+  }
+  std::cout << "Input Buffer end!!" << std::endl;
+  // Step 2: Bind Node to Compute Op
+  for (auto node : graph_->nodes()) {
+    std::vector<ArgValue> inputs_expr;
+    std::vector<ExprHandle> node_inputs_buf;
+    for (auto input_ : node->inputs()) {
+      if (input_->node()->kind() == prim::Constant) {
+        auto val = toIValue(input_).value();
+        if (val.isDouble()) {
+          inputs_expr.emplace_back(val.toDouble());  
+        } else if (val.isInt()) {
+          std::cout << "node: " << node->kind().toQualString() << std::endl;
+          std::cout << "var: " << val.toInt() << std::endl;
+          inputs_expr.emplace_back(val.toInt());
+          std::cout << inputs_expr.size() << std::endl;
+          std::cout << "is int: " << c10::get_if<int64_t>(&inputs_expr[1]) << std::endl;
+          std::cout << "int: " << *(c10::get_if<int64_t>(&inputs_expr[1])) << std::endl;
+        } else if (val.isBool()) {
+          inputs_expr.emplace_back(val.toBool());
+        } else if (val.isNone()) {
+          // This is just a placeholder so we don't throw.  None-handling
+          // is operator-specific and should be handled properly in
+          // the operator-specific lowering code.
+          inputs_expr.emplace_back(ArgNone());
+        } else {
+          throw unsupported_dtype();
+        }
+      } else if (input_->type()->cast<TensorType>())
+        inputs_expr.emplace_back(BufHandle(bufs_[input_]));
+      else
+        inputs_expr.emplace_back(VarHandle(vars_[input_]));
+    }
+    std::cout << "get input done!!" << std::endl;
+    if (node->kind() == prim::Constant) {
+      std::cout << "constant!!" << std::endl;
+      auto output_value = node->output(0);
+      auto const_var = get_const_var_by_value(output_value);
+      vars_[output_value] = const_var.node();
+      // AT_ASSERT(node->kind() != prim::Constant, "Constant Feature are not supported by now");
+    } else {
+      std::cout << "output tensor" << std::endl;
+      Tensor output_tensor(nullptr, nullptr);
+      NNCLoweringFunction lowering;
+      if (node->maybeSchema()) {
+        lowering = getStandardLoweringFor(c10::toString(node->schema()));
+      }
+      std::vector<ExprHandle> outputShape;
+      if (shape_func.count(node->kind()))
+        outputShape = shape_func[node->kind()](inputs_expr);
+      else {
+        std::cout << "[Warning] no shape function for " << node->kind().toDisplayString() << "!!!" << std::endl;
+        outputShape = c10::get_if<BufHandle>(&inputs_expr[0])->dims();
+      }
+      if (lowering) {
+        std::cout << "lowering" << std::endl;
+        
+        output_tensor = lowering(inputs_expr,
+                                 outputShape,
+                                 ExprVectorToExprHandleVector(c10::get_if<BufHandle>(&inputs_expr[0])->node()->strides()),
+                                 node->output(0)->type()->cast<TensorType>()->scalarType().value(),
+                                 device_);
+        FunctorShapeMap_[node->output(0)] = outputShape;
+      } else {
+        std::cout << "custom" << std::endl;
+        if (!custom_lowerings_.count(node->kind())) {
+          std::cout << "No nnc compute function to support node " << node->kind().toQualString() << std::endl;
+        }
+        output_tensor = custom_lowerings_[node->kind()](inputs_expr,
+                                                        get_stride_by_expr_dims(outputShape),
+                                                        {},
+                                                        node->output(0)->type()->cast<TensorType>()->scalarType().value(),
+                                                        device_);
+      }
+      std::cout << "stmt begin" << std::endl;
+      if (output_tensor.buf())
+        bufs_[node->output(0)] = output_tensor.buf();
+      block->append_stmt(output_tensor.stmt());
+      std::cout << to_string(output_tensor.stmt()) << std::endl;
+    }
+  }
+  std::cout << "Node End!!" << std::endl;
   // Step 3: Register Output
   for (auto output : graph_->outputs()) {
     bufOutputs_.insert(bufs_[output]);
   }
+
   // Step 4: Functor Parallelization
   // CodeGen
   LoopNest l(block, bufOutputs_);
   LoopNest::sanitizeNames(l.root_stmt());
-
+  std::cout << to_string(l.root_stmt()) << std::endl;
   if (verbose_) {
     std::cout << "Original Functor: " << std::endl;
     std::cout << to_string(l.root_stmt()) << std::endl;
@@ -151,37 +315,57 @@ void GraphBuilder::compile() {
     std::cout << to_string(stmt_) << std::endl;
   }
 
-  // Step 3.2: Arguments Replacement
-  for (int i = 0; i < FunctorInputBufferArgs_.size(); i++) {
-    if (is_parallelled_args_[i]) {
-      for (int parallel_idx = 0; i < degree_; i++) {
-        BufHandle parallel_buf(&"parallel_" [ parallel_idx],
-                               {},
-                               kFloat);
-        ParallelBufferArgs_.emplace_back(parallel_buf);
+  for (auto input_value_shape : FunctorShapeMap_) {
+    auto input_shape = input_value_shape.second;
+    for (auto dim : input_shape) {
+      auto functor_dim = dim.AsNode<Var>();
+      if (!functor_dim)
+        continue;
+      std::vector<VarHandle> par_dims;
+      for (int i = 0; i < degree_; i++) {
+        auto par_dim = VarHandle(set_hash_name(functor_dim->name_hint()),
+                                       kLong);
+        par_dims.push_back(par_dim);
       }
+      ShapeVarParallelFunctorMap[functor_dim] = par_dims;
+    }
+  }
+
+  // Input Value Replacement
+  std::unordered_map<const Value*, BufPtr> input_buf;
+  for (auto input : graph_->inputs()) {
+    if (input->type()->cast<TensorType>()) {
+      auto functor_buf = bufs_[input];
+      std::vector<BufHandle> par_bufs;
+      for (int i = 0; i < degree_; i++) {
+        std::vector<ExprHandle> par_dims;
+        for (auto value_dim_idx = 0;
+             value_dim_idx < input->type()->cast<TensorType>()->symbolic_sizes().rank();
+             value_dim_idx++) {
+          auto value_dim = input->type()->cast<TensorType>()->symbolic_sizes()[value_dim_idx];
+          if (value_dim.is_static()) {
+            par_dims.push_back(LongImm::make(value_dim.value()));
+          } else {
+            auto functor_dim = FunctorShapeMap_[input][value_dim_idx].AsNode<Var>();
+            par_dims.push_back(ShapeVarParallelFunctorMap[functor_dim][i]);
+          }
+        }
+
+        auto par_buf = BufHandle(set_hash_name(functor_buf->name_hint()),
+                                      ExprVectorToExprHandleVector(ExprHandleVectorToExprVector(par_dims)),
+                                      functor_buf->dtype());
+        par_bufs.push_back(par_buf);
+      }
+      LoadBufParallelFunctorMap[bufs_[input]] = par_bufs;
     } else {
-        ParallelBufferArgs_.emplace_back(FunctorInputBufferArgs_[i]);
-    }
-  }
-
-  for (int i = 0; i < FunctorInputShapeArgs_.size(); i++) {
-    if (FunctorInputShapeArgs_[i].var()->isConstant())
-      ParallelBufferArgs_.emplace_back(FunctorInputShapeArgs_[i]);
-    else {
-      for (int parallel_idx = 0; i < degree_; i++) {
-        VarHandle parallel_shape_var("ToName", kLong);
-        ParallelBufferArgs_.emplace_back(parallel_shape_var);
+      auto functor_var = vars_[input];
+      std::vector<VarHandle> par_vars;
+      for (int i = 0; i < degree_; i++) {
+        auto par_var = VarHandle(set_hash_name(functor_var->name_hint()),
+                                      functor_var->dtype());
+        par_vars.push_back(par_var);
       }
-    }
-  }
-
-  for (int i = 0; i < FunctorOutputBufferReturns_.size(); i++) {
-    for (int parallel_idx = 0; i < degree_; i++) {
-      BufHandle parallel_buf(&"parallel_" [ parallel_idx],
-                             {},
-                             kFloat);
-      ParallelBufferArgs_.emplace_back(parallel_buf);
+      LoadVarParallelFunctorMap[vars_[input]] = par_vars;
     }
   }
 
@@ -190,26 +374,101 @@ void GraphBuilder::compile() {
                                                       new_loop_axis.node(),
                                                       LoadBufParallelFunctorMap,
                                                       LoadVarParallelFunctorMap);
+  l.simplify();
+  if (verbose_) {
+    std::cout << "after input parallization: " << std::endl;
+    std::cout << to_string(stmt_) << std::endl;
+  }
 
+  std::unordered_map<const Value*, BufPtr> output_buf;
+  std::cout << "********sd" << std::endl;
+  for (auto output : graph_->outputs()) {
+    auto functor_buf = bufs_[output];
+    
+    std::vector<BufHandle> par_bufs;
+    for (int i = 0; i < degree_; i++) {
+      std::vector<ExprHandle> par_dims;
+      for (int dim_idx = 0; dim_idx < functor_buf->dims().size(); dim_idx++) {
+        auto functor_dim = ExprHandle(functor_buf->dim(dim_idx)).AsNode<Var>();
+        if (!functor_dim) {
+          par_dims.push_back(ExprHandle(functor_buf->dim(dim_idx)));
+        } else {
+          std::cout << "^%&%^" << std::endl;
+          par_dims.push_back(ExprHandle(ShapeVarParallelFunctorMap[functor_dim][i]));
+          std::cout << "^%&%^" << std::endl;
+        }
+      }
+
+      auto par_buf = BufHandle(set_hash_name(functor_buf->name_hint()),
+                                     ExprVectorToExprHandleVector(ExprHandleVectorToExprVector(par_dims) ),
+                                     functor_buf->dtype());
+      par_bufs.push_back(par_buf);
+    }
+    std::cout << "dfgdfg" << std::endl;
+    StoreBufParallelFunctorMap[bufs_[output]] = par_bufs;
+  }
+  std::cout << "??" << std::endl;
   stmt_ = FunctorParallization::parallel_functor_store(stmt_,
                                                        degree_,
                                                        new_loop_axis.node(),
                                                        StoreBufParallelFunctorMap);
+  l.simplify();
+  if (verbose_) {
+    std::cout << "after output parallization: " << std::endl;
+    std::cout << to_string(stmt_) << std::endl;
+  }
+
+  
 
   stmt_ = FunctorParallization::parallel_functor_shape(stmt_,
                                                        degree_,
                                                        new_loop_axis.node(),
                                                        ShapeVarParallelFunctorMap);
+  l.simplify();
+  if (verbose_) {
+    std::cout << "after output parallization: " << std::endl;
+    std::cout << to_string(stmt_) << std::endl;
+  }
 
   l.prepareForCodegen();
   l.simplify();
-
   auto stmt = l.root_stmt();
   IRSimplifier::simplify(stmt);
-
   if (verbose_) {
-    std::cout << "after loop parallization: " << std::endl;
+    std::cout << "after pre codegen: " << std::endl;
     std::cout << to_string(stmt_) << std::endl;
+  }
+
+  // input
+  // buf
+  for (auto input : LoadBufParallelFunctorMap) {
+    auto par_inputs = input.second;
+    for (auto par_input : par_inputs) {
+      ParallelBufferArgs_.push_back(par_input);
+    }
+  }
+  // var
+  for (auto input : LoadVarParallelFunctorMap) {
+    auto par_inputs = input.second;
+    for (auto par_input : par_inputs) {
+      ParallelBufferArgs_.push_back(par_input);
+    }
+  }
+
+  // shape
+  for (auto dim : ShapeVarParallelFunctorMap) {
+    auto par_dims = dim.second;
+    for (auto par_dim : par_dims) {
+      ParallelBufferArgs_.push_back(par_dim);
+    }
+  }
+
+  // output
+  for (auto output : StoreBufParallelFunctorMap) {
+    auto par_outputs = output.second;
+    for (auto par_output : par_outputs) {
+      ParallelBufferArgs_.push_back(par_output);
+    }
   }
 
   codegen_ = CreateCodeGen(
@@ -217,7 +476,11 @@ void GraphBuilder::compile() {
           stmt_,
           ParallelBufferArgs_,
           device_);
-
+  
+  if (verbose_) {
+    std::cout << "after codegen: " << std::endl;
+    std::cout << codegen_->getCodeText() << std::endl;
+  }
 }
 
 void GraphBuilder::run(torch::jit::Stack &stack) const {
@@ -228,9 +491,116 @@ void GraphBuilder::run(torch::jit::Stack &stack) const {
   }
 }
 
+std::vector<CodeGen::CallArg> GraphBuilder::prepareRunArgs(
+    const at::ArrayRef<IValue>& inputs,
+    std::vector<std::vector<at::Tensor>>& outputs) const {
+  std::vector<CodeGen::CallArg> runArgs;
+  // TODO: with is_paralllel_args
+  std::vector<CodeGen::CallArg> shape_args;
+  if (verbose_)
+    std::cout << "preparing input and shape call args ... ..." << std::endl;
+  
+  std::vector<std::vector<CodeGen::CallArg>> shape_args_degree;
+  for (int input_idx = 0; input_idx < inputs.size(); input_idx++) {
+    
+    auto input = inputs[input_idx];
+    if (input.isTensorList()) {
+      auto list_input = input.toTensorList();
+      for (int i = 0; i < degree_; i++) {
+        std::vector<CodeGen::CallArg> shape_args_per_degree;
+        if (verbose_)
+          std::cout << "degree: " << i << std::endl;
+        auto tensor_input = list_input[i].get().toTensor();
+        runArgs.emplace_back(tensor_input.data_ptr());
+        auto tensor_type = refined_types_[input_idx]->cast<TensorType>();
+        for (int64_t dim_idx = 0; dim_idx < tensor_type->sizes().size(); dim_idx++) {
+          if (!tensor_type->symbolic_sizes()[dim_idx].is_static())
+            shape_args_per_degree.emplace_back(tensor_input.size(dim_idx));
+        }
+        shape_args_degree.emplace_back(shape_args_per_degree);
+        if (verbose_)
+          std::cout << "degree: " << i << std::endl;
+      }
+    } else if (input.isDoubleList()) {
+      auto list_input = input.toDoubleList();
+      for (int i = 0; i < degree_; i++) {
+        std::cout << "double: " << list_input[i].get().toDouble() << std::endl;
+        runArgs.emplace_back(list_input[i].get().toDouble());
+      }
+    } else if (input.isIntList()) {
+      auto list_input = input.toIntList();
+      for (int i = 0; i < degree_; i++) {
+        runArgs.emplace_back(list_input[i].get().toInt());
+      }
+    } else if (input.isBoolList()) {
+      auto list_input = input.toBoolList();
+      for (int i = 0; i < degree_; i++) {
+        runArgs.emplace_back(list_input[i].get().toBool());
+      }
+    } else {
+      throw unsupported_dtype();
+    }
+  }
+  for (int i = 0; i < shape_args_degree[0].size(); i++) {
+    for (int j = 0; j < degree_; j++) {
+      runArgs.emplace_back(shape_args_degree[j][i]);
+    }
+  }
+  
+  if (verbose_)
+    std::cout << "preparing input and shape call args DONE!!!" << std::endl;
+  for (int i = 0; i < bufOutputs_.size(); i++) {
+    std::vector<at::Tensor> list_output;
+    for (int j = 0; j < degree_; j++) {
+      std::vector<int64_t> output_shape;
+      for (auto dim : inputs[0].toTensorList()[j].get().toTensor().sizes()) {
+        output_shape.push_back(dim);
+        if (verbose_)
+          std::cout << "output shape dim: " << dim << std::endl;
+      }
+      auto output_tensor = codegen_->empty_strided(output_shape,
+                                                       get_stride_by_shape(output_shape),
+                                                       c10::kFloat,
+                                                       c10::kStrided,
+                                                       device_,
+                                                       false);
+      list_output.emplace_back(output_tensor);
+      runArgs.emplace_back(output_tensor.data_ptr());
+    }
+    outputs.push_back(list_output);
+  }
+
+  return runArgs;
+}
+
 void GraphBuilder::runKernel(Stack &stack) const {
+  if (verbose_)
+    std::cout << "run kernel begin: " << std::endl;
   auto inputs = last(stack, nInputs_);
-  std::vector<at::Tensor> outputs;
+  std::vector<std::vector<at::Tensor>> outputs;
+  if (verbose_)
+    std::cout << "Preparing call args ... ... " << std::endl;
+  std::vector<CodeGen::CallArg> runArgs = prepareRunArgs(inputs,
+                                                         outputs);
+  if (verbose_) {
+    std::cout << "Preparing call args DONE!!! " << std::endl;
+    std::cout << "run kernel call begin ... " << std::endl;
+
+    std::cout << "run Args size: " << runArgs.size() << std::endl;
+    std::cout << "codegen text: " << std::endl << codegen_->getCodeText() << std::endl;
+  }
+  
+
+  codegen_->call(runArgs);
+  if (verbose_) {
+    std::cout << "run kernel call end. " << std::endl;
+  }
+
+  drop(stack, nInputs_);
+  std::cout << stack.size() << std::endl;
+  for (auto& o : outputs) {
+    push_one(stack, std::move(at::List<at::Tensor>(o)));
+  }
 }
 
 }  // namespace jit

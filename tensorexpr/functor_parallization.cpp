@@ -93,6 +93,7 @@ StmtPtr ParallelFunctorOutputArgsMutator::stmt_replace(StorePtr functor_arg, std
   if (parallel_args.size() == 1){
     StorePtr store_op = Store::make(parallel_args[0], ExprVectorToExprHandleVector(functor_arg->indices()), ExprHandle(functor_arg->value()));
     store_op->buf()->set_dims(ExprHandleVectorToExprVector(parallel_args[0].dims()));
+    return store_op;
   }
   StorePtr store_op_0 = Store::make(parallel_args[0], ExprVectorToExprHandleVector(functor_arg->indices()), ExprHandle(functor_arg->value()));
   StorePtr store_op_1 = Store::make(parallel_args[1], ExprVectorToExprHandleVector(functor_arg->indices()), ExprHandle(functor_arg->value()));
