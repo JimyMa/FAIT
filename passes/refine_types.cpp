@@ -89,6 +89,17 @@ void RefineInputTypes(const std::shared_ptr<Graph> &graph,
         setRefinedType(graph->inputs()[i + 1], inputTypes[i], refinedTypes);
 }
 
+void dumpRefinedTypes(const ValueTypeMap &refinedTypes) {
+    std::vector<std::pair<Value *, TypePtr>> pairs(refinedTypes.begin(),
+                                                   refinedTypes.end());
+    std::sort(pairs.begin(), pairs.end(), [](auto &p1, auto &p2) {
+        return p1.first->unique() < p2.first->unique();
+    });
+    for (auto &pair : pairs)
+        print(std::cout, "%", pair.first->debugName(), ": ",
+              *pair.first->type(), ' ', *pair.second, '\n');
+}
+
 using BlockPropagator = std::function<void(Block *, ValueTypeMap &)>;
 
 #define TYPE_PROP_PARAMS \

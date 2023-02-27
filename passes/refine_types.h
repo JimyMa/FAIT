@@ -45,6 +45,8 @@ void setRefinedType(Value *value, const TypePtr &newType,
 
 void removeDeadRefinedTypes(ValueTypeMap &refinedTypes, Graph *graph);
 
+void dumpRefinedTypes(const ValueTypeMap &refinedTypes);
+
 /// Lookup tables for tensor type refinement functions
 
 extern OperatorMap<c10::SymbolicShape (*)(Node *, ValueTypeMap &)> shapeFuncs;

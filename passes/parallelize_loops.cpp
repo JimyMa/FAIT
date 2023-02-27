@@ -1,5 +1,6 @@
 #include "parallelize_loops.h"
 
+#include "common_passes.h"
 #include "type_utils.h"
 #include "util/ir.h"
 #include "util/traits.h"
@@ -282,6 +283,111 @@ void SplitParallelMaps(const std::shared_ptr<Graph> &graph,
         return true;
     });
     removeDeadRefinedTypes(refinedTypes, graph.get());
+}
+
+static void convertInfusibleMap(Node *parMap, ValueTypeMap &refinedTypes) {
+    // Create loop node
+    auto graph = parMap->owningGraph();
+    graph->setInsertPoint(parMap->next());
+    auto trueCnst = graph->insertConstant(true);
+    auto loopNode = graph->create(prim::Loop, {parMap->input(0), trueCnst}, 0);
+    loopNode->insertAfter(trueCnst->node());
+
+    // Create list construct nodes
+    std::vector<Value *> lists;
+    for (auto mapOut : parMap->outputs()) {
+        auto elemTy = getElementType(mapOut->type(), 0);
+        auto listVal =
+            graph->createList(elemTy, {})->insertBefore(loopNode)->output(0);
+        lists.push_back(listVal);
+        transferRefinedType(mapOut, listVal, refinedTypes);
+        mapOut->replaceAllUsesWith(listVal);
+    }
+
+    // Create element access nodes
+    std::unordered_map<Value *, Value *> valueMap;
+    auto mapBlock = parMap->blocks().front(), loopBlock = loopNode->addBlock();
+    auto loopIdx = loopBlock->addInput()->setType(IntType::get());
+    valueMap.insert({mapBlock->inputs().front(), loopIdx});
+    for (auto i : c10::irange(1, mapBlock->inputs().size())) {
+        auto mapParam = mapBlock->inputs()[i], inList = parMap->input(i);
+        graph->setInsertPoint(loopBlock);
+        auto item = graph->insert(aten::__getitem__, {inList, loopIdx})
+                        ->setType(mapParam->type());
+        valueMap.insert({mapParam, item});
+    }
+
+    // Clone nodes to loop body
+    cloneNodesToBlock(mapBlock->nodes().front(), mapBlock->nodes().back(),
+                      loopBlock, graph, valueMap);
+
+    // Add append nodes
+    graph->setInsertPoint(loopBlock);
+    for (auto i : c10::irange(parMap->outputs().size())) {
+        auto ret = mapBlock->outputs()[i], listVal = lists[i];
+        graph->insert(aten::append, {listVal, valueMap.at(ret)});
+    }
+    loopBlock->insertOutput(0, trueCnst);
+
+    // Remove parallel map
+    parMap->destroy();
+    removeDeadRefinedTypes(refinedTypes, graph);
+}
+
+void ConvertInfusibleMapsToLoops(const std::shared_ptr<Graph> &graph,
+                                 ValueTypeMap &refinedTypes) {
+    // Find infusible parallel maps
+    std::vector<Node *> infusibleMaps;
+    traversePostOrder(graph->block(), [&](Node *node) {
+        if (node->kind() != prim::ParallelMap) return true;
+        auto block = node->blocks().front();
+        auto frontNode = block->nodes().front();
+        if (frontNode->kind() == prim::FusionGroup) return true;
+        infusibleMaps.push_back(node);
+        return true;
+    });
+
+    // Convert each infusible parallel map
+    for (auto parMap : infusibleMaps) convertInfusibleMap(parMap, refinedTypes);
+
+    // Followup passes
+    EliminateCommonSubexprTSSA(graph);
+}
+
+void CanonicalizeFusableMaps(const std::shared_ptr<Graph> &graph) {
+    traversePreOrder(graph->block(), [](Node *node) {
+        // Check if the parallel map is fusable
+        if (node->kind() != prim::ParallelMap) return true;
+        auto mapBlock = node->blocks().front();
+        auto group = mapBlock->nodes().front();
+        if (group->kind() != prim::FusionGroup) return true;
+
+        // Check map index
+        std::vector<size_t> groupArgPerm;
+        auto index = mapBlock->inputs().front();
+        auto groupBlock = group->blocks().front();
+        if (index->hasUses()) {
+            TORCH_INTERNAL_ASSERT(index->uses().size() == 1);
+            groupArgPerm.push_back(index->uses().front().offset);
+        } else {
+            group->insertInput(0, index)->setType(IntType::get());
+            groupBlock->insertInput(0)->setType(IntType::get());
+            groupArgPerm.push_back(0);
+        }
+
+        // Reorder loop outputs
+        for (auto param : mapBlock->inputs().slice(1)) {
+            TORCH_INTERNAL_ASSERT(index->uses().size() == 1);
+            groupArgPerm.push_back(param->uses().front().offset);
+        }
+        for (auto i :
+             c10::irange(mapBlock->inputs().size(), group->inputs().size()))
+            groupArgPerm.push_back(i);
+        group->permuteInputs(groupArgPerm);
+        groupBlock->permuteInputs(groupArgPerm);
+
+        return true;
+    });
 }
 
 }  // namespace jit

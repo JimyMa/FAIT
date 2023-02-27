@@ -1,8 +1,7 @@
 #include "tensor_ssa.h"
 
-#include <torch/csrc/jit/ir/alias_analysis.h>
-
 #include "common_passes.h"
+#include "parallelize_loops.h"
 #include "util/disjoint_set.h"
 #include "util/ir.h"
 #include "util/traits.h"
@@ -238,6 +237,37 @@ void ToTensorSSA(const std::shared_ptr<Graph> &graph) {
         output->replaceAllUsesWith(node->input(1));
         return remove(node);
     });
+}
+
+static void toMutableTensorsIn(Block *block) {
+    auto graph = block->owningGraph();
+    for (auto node = block->nodes().front(); node != block->nodes().back();
+         node = node->next()) {
+        auto kind = node->kind();
+        if (kind == tssa::Assign) {
+            auto dst = node->input(0), src = node->input(1);
+            auto dstDef = dst->node();
+            graph->setInsertPoint(node->next());
+            if (dstDef->kind() == aten::index) {  // advanced indexing
+                auto self = dstDef->input(0), indices = dstDef->input(1);
+                graph->insert(aten::index_put_, {self, indices, src});
+                node->output(0)->replaceAllUsesWith(self);
+            } else {
+                graph->insert(aten::copy_, {dst, src});
+                node->output(0)->replaceAllUsesWith(dst);
+            }
+        } else if (kind == tssa::Update) {
+            node->output(0)->replaceAllUsesWith(node->input(0));
+        }
+        if (kind != prim::FusionGroup) {
+            for (auto subBlock : node->blocks()) toMutableTensorsIn(subBlock);
+        }
+    }
+}
+
+void ToMutableTensors(const std::shared_ptr<Graph> &graph) {
+    toMutableTensorsIn(graph->block());
+    EliminateDeadCodeTSSA(graph);
 }
 
 }  // namespace jit

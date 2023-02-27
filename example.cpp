@@ -55,6 +55,10 @@ int main(int argc, const char *argv[]) {
         dumpGraphToFile(graph, "after_fuse.rb");
         SplitParallelMaps(graph, refinedTypes);
         dumpGraphToFile(graph, "after_split.rb");
+        ToMutableTensors(graph);
+        ConvertInfusibleMapsToLoops(graph, refinedTypes);
+        CanonicalizeFusableMaps(graph);
+        dumpGraphToFile(graph, "after_back.rb");
         Validate(graph);
     } catch (c10::Error &err) {
         std::cout << err.what();
