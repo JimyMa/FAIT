@@ -26,9 +26,9 @@ bool traversePostOrder(Block *block,
 /// @param node The node to be removed.
 /// @return The node right before the removed one.
 inline Node *remove(Node *node) {
-    auto prev = node->prev();
-    node->destroy();
-    return prev;
+  auto prev = node->prev();
+  node->destroy();
+  return prev;
 }
 
 /// @brief Replace the node with a new node, and return the one right before the
@@ -37,9 +37,9 @@ inline Node *remove(Node *node) {
 /// @param newNode The new node that will replace the old one.
 /// @return The node right before the old one.
 inline Node *replace(Node *oldNode, Node *newNode) {
-    newNode->insertAfter(oldNode);
-    oldNode->replaceAllUsesWith(newNode);
-    return remove(oldNode);
+  newNode->insertAfter(oldNode);
+  oldNode->replaceAllUsesWith(newNode);
+  return remove(oldNode);
 }
 
 /// @brief Rewrite nodes in a block with a given pattern recursively in
