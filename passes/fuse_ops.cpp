@@ -251,7 +251,7 @@ static Node *commitFusion(Node *head, Node *tail, Graph *graph,
   }
 
   // Move nodes to the new block
-  moveNodesToBlock(head, fusionNode, fusionBlock, graph, valueMap);
+  moveNodesToBlock(head, fusionNode, fusionBlock, valueMap, &refinedTypes);
   removeDeadRefinedTypes(refinedTypes, graph);
 
   // Handle block returns

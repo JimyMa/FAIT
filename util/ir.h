@@ -60,8 +60,10 @@ void rewrite(Block *block, const std::function<Node *(Node *)> &pattern);
 /// @param graph The graph that owns the block.
 /// @param valueMap Mappings from the value in the original block to the ones in
 /// the new block.
-void cloneNodesToBlock(Node *begin, Node *end, Block *block, Graph *graph,
-                       std::unordered_map<Value *, Value *> &valueMap);
+void cloneNodesToBlock(
+    Node *begin, Node *end, Block *block,
+    std::unordered_map<Value *, Value *> &valueMap,
+    std::unordered_map<Value *, TypePtr> *refinedTypes = nullptr);
 
 /// @brief Move the nodes in range [`begin`, `end`) to the end of the new block.
 /// @param begin The beginning of the node range (inclusive).
@@ -71,8 +73,10 @@ void cloneNodesToBlock(Node *begin, Node *end, Block *block, Graph *graph,
 /// @param graph The graph that owns the block.
 /// @param valueMap Mappings from the value in the original block to the ones in
 /// the new block.
-void moveNodesToBlock(Node *begin, Node *end, Block *block, Graph *graph,
-                      std::unordered_map<Value *, Value *> &valueMap);
+void moveNodesToBlock(
+    Node *begin, Node *end, Block *block,
+    std::unordered_map<Value *, Value *> &valueMap,
+    std::unordered_map<Value *, TypePtr> *refinedTypes = nullptr);
 
 }  // namespace jit
 }  // namespace torch

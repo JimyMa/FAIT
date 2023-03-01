@@ -40,6 +40,8 @@ inline void transferRefinedType(Value *src, Value *dst,
   refinedTypes[dst] = refinedTypes[src];
 }
 
+void transferRefinedTypesOf(Node *src, Node *dst, ValueTypeMap &refinedTypes);
+
 void setRefinedType(Value *value, const TypePtr &newType,
                     ValueTypeMap &refinedTypes);
 

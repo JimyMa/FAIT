@@ -218,9 +218,8 @@ static Node *splitAt(Node *prevParMap, Node *splitNode, Graph *graph,
   }
 
   // Move nodes beginning from the split point to the new map
-  moveNodesToBlock(splitNode, prevBlock->return_node(), nextBlock, graph,
-                   valueMap);
-  removeDeadRefinedTypes(refinedTypes, graph);
+  moveNodesToBlock(splitNode, prevBlock->return_node(), nextBlock, valueMap,
+                   &refinedTypes);
 
   // Add return values to next block
   for (auto ret : nextRets)
@@ -318,7 +317,7 @@ static void convertInfusibleMap(Node *parMap, ValueTypeMap &refinedTypes) {
 
   // Clone nodes to loop body
   cloneNodesToBlock(mapBlock->nodes().front(), mapBlock->nodes().back(),
-                    loopBlock, graph, valueMap);
+                    loopBlock, valueMap, &refinedTypes);
 
   // Add append nodes
   graph->setInsertPoint(loopBlock);

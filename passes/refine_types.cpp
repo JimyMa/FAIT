@@ -66,6 +66,25 @@ static void markLiveValues(Block *block,
   }
 }
 
+static void transferRefinedTypesIn(Block *src, Block *dst,
+                                   ValueTypeMap &refinedTypes) {
+  transferRefinedTypesOf(src->param_node(), dst->param_node(), refinedTypes);
+  for (auto srcNode = src->nodes().front(), dstNode = dst->nodes().front();
+       srcNode != src->nodes().back() && dstNode != dst->nodes().back();
+       srcNode = srcNode->next(), dstNode = dstNode->next()) {
+    transferRefinedTypesOf(srcNode, dstNode, refinedTypes);
+  }
+}
+
+void transferRefinedTypesOf(Node *src, Node *dst, ValueTypeMap &refinedTypes) {
+  TORCH_INTERNAL_ASSERT(src->outputs().size() == dst->outputs().size());
+  TORCH_INTERNAL_ASSERT(src->blocks().size() == dst->blocks().size());
+  for (auto i : c10::irange(src->outputs().size()))
+    transferRefinedType(src->output(i), dst->output(i), refinedTypes);
+  for (auto i : c10::irange(src->blocks().size()))
+    transferRefinedTypesIn(src->blocks()[i], dst->blocks()[i], refinedTypes);
+}
+
 void removeDeadRefinedTypes(ValueTypeMap &refinedTypes, Graph *graph) {
   std::unordered_set<Value *> deadValues;
   for (auto &pair : refinedTypes) deadValues.insert(pair.first);
@@ -437,9 +456,11 @@ void InferShape(const std::shared_ptr<Graph> &graph,
     inferShapeIn(graph->block(), refinedTypes);
     if (!FoldConstantsTSSA(graph)) break;
     EliminateDeadCodeTSSA(graph);
+    removeDeadRefinedTypes(refinedTypes, graph.get());
   }
   HoistLoopInvariants(graph);
   EliminateCommonSubexprTSSA(graph);
+  removeDeadRefinedTypes(refinedTypes, graph.get());
 }
 
 }  // namespace jit
