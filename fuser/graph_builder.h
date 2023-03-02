@@ -8,6 +8,7 @@
 #include <functional>
 #include <memory>
 
+#include "fuser/solve_update.h"
 #include "passes/tensor_ssa.h"
 #include "fuser/tssa_nnc_func.h"
 
@@ -21,14 +22,15 @@
 // #include <torch/csrc/jit/tensorexpr/lowerings.h>
 // #include <torch/csrc/jit/tensorexpr/tensor.h>
 // #include <torch/csrc/jit/tensorexpr/types.h>
+#include <torch/csrc/jit/tensorexpr/lowerings.h>
 #include <unordered_map>
+#include <vector>
 
 using namespace torch::jit::tensorexpr;
 
 
 namespace torch {
 namespace jit {
-
 
 using NNCShapeFunction = std::function<std::vector<ExprHandle>(std::vector<ArgValue>)>;
 
@@ -49,7 +51,7 @@ class GraphBuilder {
 
  private:
   void compile();
-  
+  std::vector<ArgValue> get_input_expr(Node* node);
   std::vector<int64_t> get_stride_by_shape(const std::vector<int64_t> shape) const;
   std::vector<ExprHandle> get_stride_by_expr_dims(const std::vector<ExprHandle> expr_shape) const;
   Dtype get_scalar_type_by_value_type(TypePtr value_type);
@@ -68,7 +70,7 @@ class GraphBuilder {
     return result;
   }
 
-  bool verbose_ = true;
+  bool verbose_ = false;
 
   int64_t degree_ = 1;
   std::vector<TypePtr> refined_types_;
@@ -102,12 +104,15 @@ class GraphBuilder {
   std::unordered_map<c10::Symbol, NNCLoweringFunction>
   custom_lowerings_ = {{c10::tssa::Assign, computeAssign},
                        {c10::aten::select, computeSelect},
-                       {c10::aten::slice, computeSlice}};
+                       {c10::aten::slice, computeSlice},
+                       {c10::tssa::SliceSet, computeSliceSet},
+                       {c10::tssa::SelectSet, computeSelectSet}};
   
   std::unordered_map<c10::Symbol, NNCShapeFunction>
   shape_func = {{c10::aten::add, computePointwiseShape},
                 {c10::aten::select, computeSelectShape},
-                {c10::aten::slice, computeSliceShape}};
+                {c10::aten::slice, computeSliceShape},
+                {c10::aten::permute, computePermuteShape}};
 
   std::unique_ptr<CodeGen> codegen_;
 };

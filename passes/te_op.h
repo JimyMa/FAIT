@@ -18,7 +18,6 @@ static auto input_refine_types = Symbol::fromQualString("attr::input_refine_type
 }  // namespace tssa
 }  // namespace c10
 
-using namespace torch::jit;
 namespace torch {
 namespace jit {
 void MapFunctorToParallization(const std::shared_ptr<Graph> &graph,
