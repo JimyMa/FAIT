@@ -46,9 +46,9 @@ int main(int argc, const char *argv[]) {
     Freeze(&mod);
         auto graph = mod.get_method("forward").graph();
     std::vector<TypePtr> inputTypes{TupleType::create({
-        TensorType::createContiguous(c10::kFloat, c10::kCUDA, {1, 1, 10, 10}),
-        TensorType::createContiguous(c10::kFloat, c10::kCUDA, {1, 1, 20, 20}),
-        TensorType::createContiguous(c10::kFloat, c10::kCUDA, {1, 1, 40, 40}),
+        TensorType::createContiguous(c10::kFloat, c10::kCUDA, {1, 85, 1, 1}),
+        TensorType::createContiguous(c10::kFloat, c10::kCUDA, {1, 85, 20, 20}),
+        TensorType::createContiguous(c10::kFloat, c10::kCUDA, {1, 85, 40, 40}),
     })};
     ValueTypeMap refinedTypes;
     try {
@@ -66,25 +66,20 @@ int main(int argc, const char *argv[]) {
         dumpGraphToFile(graph, "after_fuse.rb");
         SplitParallelMaps(graph, refinedTypes);
         dumpGraphToFile(graph, "after_split.rb");
-        std::cout << "??" << std::endl;
         MapFunctorToParallization(graph, refinedTypes);
         dumpGraphToFile(graph, "after_codegen.rb");
         Validate(graph);
     } catch (c10::Error &err) {
         std::cout << err.what();
     }
-    std::cout << "<<<" << std::endl;
     // Runtime
-    at::List<at::Tensor> a_list = {at::ones({1, 1, 10, 10}).to(at::kFloat).cuda() * 0,
-                               at::ones({1, 1, 20, 20}).to(at::kFloat).cuda() * 1,
-                               at::ones({1, 1, 40, 40}).to(at::kFloat).cuda() * 2};
+    at::List<at::Tensor> a_list = {at::ones({1, 85, 1, 1}).to(at::kFloat).cuda() * 0,
+                               at::ones({1, 85, 20, 20}).to(at::kFloat).cuda() * 1,
+                               at::ones({1, 85, 40, 40}).to(at::kFloat).cuda() * 2};
     // at::List<double> b_list = {2.0, 3, 4};
-    graph->dump();
     Code code(graph, "");
     Stack input = {"", a_list};
     torch::jit::InterpreterState(code).run(input);
-    std::cout << input.size();
-    std::cout << input[0].toTensorList().size() << std::endl;
     std::cout << input[0].toTensorList()[0] << std::endl;
     // std::cout << input[0].toTensorList()[1] << std::endl;
     // std::cout << input[0].toTensorList()[2] << std::endl;

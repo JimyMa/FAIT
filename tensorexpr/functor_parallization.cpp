@@ -99,6 +99,7 @@ StmtPtr ParallelFunctorOutputArgsMutator::stmt_replace(StorePtr functor_arg, std
   StorePtr store_op_1 = Store::make(parallel_args[1], ExprVectorToExprHandleVector(functor_arg->indices()), ExprHandle(functor_arg->value()));
   store_op_0->buf()->set_dims(ExprHandleVectorToExprVector(parallel_args[0].dims()));
   store_op_1->buf()->set_dims(ExprHandleVectorToExprVector(parallel_args[1].dims()));
+  
   StmtPtr cond = Cond::make(
           CompareSelect::make(ExprHandle(iter_var_), LongImm::make(0), CompareSelectOperation::kEQ),
           store_op_0,

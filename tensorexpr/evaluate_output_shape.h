@@ -10,8 +10,8 @@ using namespace torch::jit::tensorexpr;
 
 class TORCH_API OutputShapeEvaluator : public IRVisitor {
 public:
-  OutputShapeEvaluator(const std::unordered_map<VarPtr, int64_t>& dims_map)
-      : dims_map_(dims_map) {}
+  OutputShapeEvaluator(const std::unordered_map<VarPtr, int64_t>& dims_map,
+                       int64_t degree) : dims_map_(dims_map), degree_(degree) {}
   ~OutputShapeEvaluator() override = default;
 
   void visit(VarPtr v) override;
@@ -23,6 +23,7 @@ public:
   void visit(ModPtr v) override;
   void visit(MaxPtr v) override;
   void visit(MinPtr v) override;
+  void visit(CompareSelectPtr v) override;
 
   int64_t get_value() {
     return _tmp_value;
@@ -31,13 +32,15 @@ public:
 private:
   int64_t _tmp_value{-1};
   std::unordered_map<VarPtr, int64_t> dims_map_;
+  int64_t degree_;
 };
 
 class TORCH_API EvaluateOutputShape {
  public:
   static int64_t run(ExprPtr s,  /* Functor Statement */
-                     const std::unordered_map<VarPtr, int64_t>& dims_map) {
-    OutputShapeEvaluator evaluator(dims_map);
+                     const std::unordered_map<VarPtr, int64_t>& dims_map,
+                     int64_t degree) {
+    OutputShapeEvaluator evaluator(dims_map, degree);
     s->accept(&evaluator);
     return evaluator.get_value();
   }

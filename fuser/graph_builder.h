@@ -23,6 +23,7 @@
 // #include <torch/csrc/jit/tensorexpr/tensor.h>
 // #include <torch/csrc/jit/tensorexpr/types.h>
 #include <torch/csrc/jit/tensorexpr/lowerings.h>
+#include <torch/csrc/jit/tensorexpr/operators/misc.h>
 #include <unordered_map>
 #include <vector>
 
@@ -112,7 +113,8 @@ class GraphBuilder {
   shape_func = {{c10::aten::add, computePointwiseShape},
                 {c10::aten::select, computeSelectShape},
                 {c10::aten::slice, computeSliceShape},
-                {c10::aten::permute, computePermuteShape}};
+                {c10::aten::permute, computePermuteShape},
+                {c10::aten::reshape, computeReshapeShape}};
 
   std::unique_ptr<CodeGen> codegen_;
 };

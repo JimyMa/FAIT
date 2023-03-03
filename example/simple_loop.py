@@ -20,7 +20,6 @@ class SimpleLoop(torch.nn.Module):
 
         return flatten_preds, flatten_strides
 
-
 mod = torch.jit.script(SimpleLoop())
 mod.eval()
 mod = torch.jit.freeze(mod)

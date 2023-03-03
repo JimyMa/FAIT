@@ -6,6 +6,7 @@
 
 #include "util/ir.h"
 #include "fuser/graph_builder.h"
+#include "fuser/solve_update.h"
 #include "passes/parallelize_loops.h"
 
 #include "passes/te_op.h"
@@ -109,6 +110,7 @@ Node* GetParallelledFunctorByParallelMap(Node* node,
     subgraph->registerOutput(values_map[output]);
   }
   
+  SolveUpdate(subgraph);
   return functor_op;
 }
 

@@ -59,7 +59,7 @@ std::vector<ExprHandle> computeSelectShape(std::vector<ArgValue> outputShape);
 std::vector<ExprHandle> computeSliceShape(std::vector<ArgValue> outputShape);
 std::vector<ExprHandle> computeAssignShape(std::vector<ArgValue> outputShape);
 std::vector<ExprHandle> computePermuteShape(std::vector<ArgValue> input_args);
-
+std::vector<ExprHandle> computeReshapeShape(std::vector<ArgValue> input_args);
 
 }  // namespace tensorexpr
 }  // namespace jit

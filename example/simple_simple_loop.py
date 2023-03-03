@@ -6,10 +6,9 @@ import torch
 class SimpleSimpleLoop(torch.nn.Module):
     def forward(self, pred_maps: List[torch.Tensor]):
         featmap_strides = [32, 16, 8]
-
         flatten_preds = []
         for pred, stride in zip(pred_maps, featmap_strides):
-            pred = pred.permute(0, 2, 3, 1)
+            pred = pred.permute(0, 2, 3, 1).reshape([1, -1, 85])
             pred[..., :2].sigmoid_()
             flatten_preds.append(pred)
 

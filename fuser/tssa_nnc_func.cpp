@@ -135,7 +135,6 @@ Tensor computeSliceSet(
             auto dim = *c10::get_if<int64_t>(&inputValues[2]);
             if (dim == -1) {
               dim = src->dims().size() - 1;
-              std::cout << "slice set dim: " << dim << std::endl;
             }
             int64_t start;
             if (c10::get_if<ArgNone>(&inputValues[3])) {
@@ -203,8 +202,6 @@ computeSelectShape(std::vector<ArgValue> input_args) {
 
   auto result = src->dims();
   result.erase(result.begin() + dim);
-  std::cout << "size: " << src->dims().size() << std::endl;
-  std::cout << "size: " << result.size() << std::endl;
   return result;
 }
 
@@ -245,19 +242,42 @@ computePermuteShape(std::vector<ArgValue> input_args) {
   for (auto idx : new_index) {
     result.push_back(src_dims[idx]);
   }
-  std::cout << "permute shape" << std::endl;
-  for (auto dim : src->dims()) {
-    std::cout << to_string(dim.node()) << std::endl;
-  }
-
-  for (auto dim : result) {
-    std::cout << to_string(dim.node()) << std::endl;
-  }
-
 
   return result;
 }
 
+std::vector<ExprHandle>
+computeReshapeShape(std::vector<ArgValue> input_args) {
+  auto src = c10::get_if<BufHandle>(&input_args[0]);
+  auto shape = *c10::get_if<IntList>(&input_args[1]);
+  std::vector<ExprHandle> result;
+
+  for (auto dim : shape) {
+    result.push_back(LongImm::make(dim));
+  }
+
+  auto base = LongImm::make(1);
+  for (auto dim : src->dims()) {
+    base = base * dim;
+  }
+
+  auto result_base = LongImm::make(1);
+  for (int i = 0; i < result.size(); i++) {
+    auto dim = result[i];
+    if (dim.AsNode<LongImm>()->value() != -1) {
+      result_base = ExprHandle(dim) * result_base;
+    }
+  }
+
+  for (int i = 0; i < result.size(); i++) {
+    auto dim = result[i];
+    if (dim.AsNode<LongImm>()->value() == -1) {
+      result[i] = base / result_base;
+    }
+  }
+
+  return result;
+}
 
 }  // namespace tensorexpr
 }  // namespace jit
