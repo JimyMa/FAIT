@@ -4,7 +4,12 @@
 
 #ifndef LONG_TAIL_GRAPH_BUILDER_H
 #define LONG_TAIL_GRAPH_BUILDER_H
+#include <ATen/Context.h>
+#include <ATen/cuda/CUDAGeneratorImpl.h>
 #include <ATen/core/interned_strings.h>
+
+#include <c10/cuda/CUDAFunctions.h>
+
 #include <functional>
 #include <memory>
 
@@ -95,7 +100,7 @@ class GraphBuilder {
 
   int64_t nInputs_ = 0;
   int64_t nOutputs_ = 0;
-  at::Device device_ = at::kCUDA;
+  at::Device device_ = at::Device(at::kCUDA, at::cuda::current_device());
   std::vector<CodeGen::BufferArg> BufferArgs_;
 
   std::unordered_set<BufPtr> bufOutputs_;

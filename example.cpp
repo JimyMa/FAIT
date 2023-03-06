@@ -1,6 +1,9 @@
 #include <ATen/Context.h>
 #include <ATen/ATen.h>
+#include <ATen/cuda/CUDAGeneratorImpl.h>
+#include <c10/cuda/CUDAFunctions.h>
 
+#include <ATen/core/interned_strings.h>
 #include <ATen/core/ivalue.h>
 #include <ATen/core/jit_type.h>
 #include <c10/core/DeviceType.h>
@@ -19,6 +22,7 @@
 #include "passes/validate_graph.h"
 #include "passes/te_op.h"
 
+
 using namespace torch::jit;
 
 static void dumpGraphToFile(const std::shared_ptr<Graph> &graph,
@@ -29,6 +33,19 @@ static void dumpGraphToFile(const std::shared_ptr<Graph> &graph,
 
 int main(int argc, const char *argv[]) {
     at::globalContext().lazyInitCUDA();
+    std::cout << "current device: " << int(at::cuda::current_device()) << std::endl;
+    std::cout << "device count: " << int(at::cuda::device_count()) << std::endl;
+    
+    
+
+
+    // Runtime
+    at::List<at::Tensor> a_list = {at::ones({1, 85, 1, 1}).to(at::kFloat).cuda() * 0,
+                               at::ones({1, 85, 20, 20}).to(at::kFloat).cuda() * 1,
+                               at::ones({1, 85, 40, 40}).to(at::kFloat).cuda() * 2};
+    // auto num_gpus = c10::cuda::device_count();
+    // std::cout << num_gpus << std::endl;
+
     if (argc < 2) {
         std::cerr << "usage: example <path-to-script-module>\n";
         return 1;
@@ -72,10 +89,7 @@ int main(int argc, const char *argv[]) {
     } catch (c10::Error &err) {
         std::cout << err.what();
     }
-    // Runtime
-    at::List<at::Tensor> a_list = {at::ones({1, 85, 1, 1}).to(at::kFloat).cuda() * 0,
-                               at::ones({1, 85, 20, 20}).to(at::kFloat).cuda() * 1,
-                               at::ones({1, 85, 40, 40}).to(at::kFloat).cuda() * 2};
+    
     // at::List<double> b_list = {2.0, 3, 4};
     Code code(graph, "");
     Stack input = {"", a_list};
