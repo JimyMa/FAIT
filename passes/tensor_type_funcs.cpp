@@ -37,9 +37,6 @@ static OperatorSet creationOps{
     "aten::zeros_like(Tensor self, *, ScalarType? dtype=None, Layout? "
     "layout=None, Device? device=None, bool? pin_memory=None, MemoryFormat? "
     "memory_format=None) -> Tensor",
-    "aten::new_zeros(Tensor self, SymInt[] size, *, ScalarType? dtype=None, "
-    "Layout? layout=None, Device? device=None, bool? pin_memory=None) -> "
-    "Tensor",
 };
 
 static c10::Device inferDeviceCreationOps(INFER_PARAMS) {
@@ -87,9 +84,6 @@ static OperatorSet convertOrFillOps{
     "aten::zeros_like(Tensor self, *, ScalarType? dtype=None, Layout? "
     "layout=None, Device? device=None, bool? pin_memory=None, MemoryFormat? "
     "memory_format=None) -> Tensor",
-    "aten::new_zeros(Tensor self, SymInt[] size, *, ScalarType? dtype=None, "
-    "Layout? layout=None, Device? device=None, bool? pin_memory=None) -> "
-    "Tensor",
 };
 
 static void updateDtypeFromArgs(Node *node, const FunctionSchema &schema,
@@ -167,14 +161,13 @@ static c10::ScalarType inferDtypeTensorOps(INFER_PARAMS) {
   }
 }
 
-static OperatorSet newOps{
-    "aten::new_zeros(Tensor self, SymInt[] size, *, ScalarType? dtype=None, "
-    "Layout? layout=None, Device? device=None, bool? pin_memory=None) -> "
-    "Tensor",
+static OperatorSet fillOps{
+    "aten::zeros(SymInt[] size, *, ScalarType? dtype=None, Layout? "
+    "layout=None, Device? device=None, bool? pin_memory=None) -> Tensor",
 };
 
-static c10::SymbolicShape inferShapeNewOps(INFER_PARAMS) {
-  auto size = getIntList(node->input(1));
+static c10::SymbolicShape inferShapeFillOps(INFER_PARAMS) {
+  auto size = getIntList(node->input(0));
   if (!size) return {};
   return *size;
 }
@@ -293,7 +286,12 @@ static c10::SymbolicShape inferShapeSliceOp(INFER_PARAMS) {
   auto end = refineDimSizeIndex(node->input(3), dimSize);
   if (dimSize) {
     if (start && *start < 0) *start += *dimSize;
-    if (end && *end < 0) *end += *dimSize;
+    if (end) {
+      if (*end < 0)
+        *end += *dimSize;
+      else
+        *end = std::min(*end, *dimSize);
+    }
   }
   auto step = refineDimSizeIndex(node->input(4), 1);
   auto outDimSize = tryApply<int64_t>(
@@ -567,16 +565,34 @@ static OperatorSet indexOp{
 };
 
 static c10::SymbolicShape inferShapeIndexOp(INFER_PARAMS) {
-  // Only support advanced indexing with exactly one tensor in `indices` and
-  // the indexing tensor should have rank 1.
+  // Get tensor shapes
   auto selfShape = getShape(node->input(0)->type());
   if (!selfShape) return {};
+  // only support advanced indexing with exactly one tensor in `indices`
   TORCH_INTERNAL_ASSERT(*getListLen(node->input(1), refinedTypes) == 1);
   auto indexTy = getElementType(getRefinedType(node->input(1), refinedTypes), 0)
                      ->cast<TensorType>();
   if (!indexTy->dim()) return {};
-  TORCH_INTERNAL_ASSERT(*indexTy->dim() == 1);
-  selfShape->at(0) = c10::nullopt;
+  auto indexRank = *indexTy->dim();
+
+  // Infer shape according to index data type
+  auto indexDtype = indexTy->scalarType();
+  TORCH_CHECK(indexDtype.has_value());
+  switch (*indexDtype) {
+    case c10::kBool: {
+      selfShape->erase(selfShape->begin(), selfShape->begin() + indexRank - 1);
+      selfShape->at(0) = c10::nullopt;
+    } break;
+
+    case c10::kLong: {
+      TORCH_CHECK(indexRank == 1);
+      selfShape->at(0) = c10::nullopt;
+    } break;
+
+    default: {
+      TORCH_INTERNAL_ASSERT(false);
+    }
+  }
   return *selfShape;
 }
 
@@ -608,7 +624,6 @@ static OperatorSet sameShapeOps{
     "aten::clamp.Tensor(Tensor self, Tensor? min=None, Tensor? max=None) -> "
     "Tensor",
     "aten::add.Scalar(Tensor self, Scalar other, Scalar alpha=1) -> Tensor",
-    "aten::add.Scalar(Tensor self, Scalar other, Scalar alpha=1) -> Tensor",
     "aten::sub.Scalar(Tensor self, Scalar other, Scalar alpha=1) -> Tensor",
     "aten::mul.Scalar(Tensor self, Scalar other) -> Tensor",
     "aten::div.Scalar(Tensor self, Scalar other) -> Tensor",
@@ -617,6 +632,9 @@ static OperatorSet sameShapeOps{
     "aten::lt.Scalar(Tensor self, Scalar other) -> Tensor",
     "aten::gt.Scalar(Tensor self, Scalar other) -> Tensor",
     "aten::ge.Scalar(Tensor self, Scalar other) -> Tensor",
+    "aten::softmax.int(Tensor self, int dim, ScalarType? dtype=None) -> Tensor",
+    "aten::sort(Tensor self, int dim=-1, bool descending=False) -> (Tensor "
+    "values, Tensor indices)",
 };
 
 static c10::SymbolicShape passSameShape(INFER_PARAMS) {
@@ -661,11 +679,19 @@ static OperatorSet longOps{
     "Tensor",
 };
 
+static void handleDtypeSort(INFER_PARAMS) {
+  auto dtype = *node->input(0)->type()->cast<TensorType>()->scalarType();
+  node->output(0)->setType(
+      node->output(0)->type()->cast<TensorType>()->withScalarType(dtype));
+  node->output(1)->setType(
+      node->output(1)->type()->cast<TensorType>()->withScalarType(c10::kLong));
+}
+
 static std::initializer_list<
     std::pair<OperatorSet, c10::SymbolicShape (*)(INFER_PARAMS)>>
     shapeFuncInit{
         {tensorOps, inferShapeTensorOps},
-        {newOps, inferShapeNewOps},
+        {fillOps, inferShapeFillOps},
         {bcastOps, inferShapeBcastOps},
         {selectOp, inferShapeSelectOp},
         {sliceOp, inferShapeSliceOp},
@@ -701,16 +727,26 @@ static std::initializer_list<
         {combineOps, inferDeviceCombineOps},
     };
 
+static std::initializer_list<std::pair<OperatorSet, void (*)(INFER_PARAMS)>>
+    specialDtypeHandlerInit{
+        {{"aten::sort(Tensor self, int dim=-1, bool descending=False) -> "
+          "(Tensor values, Tensor indices)"},
+         handleDtypeSort},
+    };
+
 static bool initialized = false;
 OperatorMap<c10::SymbolicShape (*)(INFER_PARAMS)> shapeFuncs;
 OperatorMap<c10::ScalarType (*)(INFER_PARAMS)> dtypeFuncs;
 OperatorMap<c10::Device (*)(INFER_PARAMS)> deviceFuncs;
+OperatorMap<void (*)(Node *, ValueTypeMap &)> specialDtypeHandlers;
 
 void initTensorTypeFuncs() {
   if (initialized) return;
   for (auto &pair : shapeFuncInit) shapeFuncs.insert(pair.first, pair.second);
   for (auto &pair : dtypeFuncInit) dtypeFuncs.insert(pair.first, pair.second);
   for (auto &pair : deviceFuncInit) deviceFuncs.insert(pair.first, pair.second);
+  for (auto &pair : specialDtypeHandlerInit)
+    specialDtypeHandlers.insert(pair.first, pair.second);
   initialized = true;
 }
 

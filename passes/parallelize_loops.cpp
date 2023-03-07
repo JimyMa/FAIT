@@ -125,6 +125,10 @@ void convertLoopToMap(Node *loop, Graph *graph) {
 }
 
 void ParallelizeLoops(const std::shared_ptr<Graph> &graph) {
+  // Eliminate redundant computation
+  HoistLoopInvariants(graph);
+  EliminateCommonSubexprTSSA(graph);
+
   // Find parallelizable loops
   std::unordered_set<Node *> nonParLoops;
   markNonParLoops(graph->block(), nullptr, nonParLoops);
@@ -208,8 +212,8 @@ static Node *splitAt(Node *prevParMap, Node *splitNode, Graph *graph,
     prevBlock->insertOutput(prevBlock->outputs().size(), dep);
     auto prevOut =
         prevParMap->addOutput()->setType(ListType::create(dep->type()));
-    auto refinedListTy =
-        createRefinedListType(dep->type(), getParMapTripCount(prevParMap));
+    auto refinedListTy = createRefinedListType(
+        getRefinedType(dep, refinedTypes), getParMapTripCount(prevParMap));
     setRefinedType(prevOut, refinedListTy, refinedTypes);
     nextParMap->addInput(prevOut);
     auto nextParam = nextBlock->addInput()->setType(dep->type());

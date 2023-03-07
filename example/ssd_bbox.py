@@ -82,7 +82,7 @@ class SSDAnchorGenerator(torch.nn.Module):
     def num_levels(self):
         return len(self.strides)
 
-    def forward(self, featmap_sizes: List[List[int]], dtype: torch.dtype, device: torch.device):
+    def forward(self, featmap_sizes: List[Tuple[int, int]], dtype: torch.dtype, device: torch.device):
         # assert self.num_levels == len(featmap_sizes)
         multi_level_anchors: List[torch.Tensor] = []
         for i in range(self.num_levels):
@@ -92,7 +92,7 @@ class SSDAnchorGenerator(torch.nn.Module):
         return multi_level_anchors
 
     def single_level_grid_priors(self,
-                                 featmap_size: List[int],
+                                 featmap_size: Tuple[int, int],
                                  level_idx: int,
                                  dtype: torch.dtype,
                                  device: torch.device):
@@ -111,8 +111,8 @@ class SSDAnchorGenerator(torch.nn.Module):
         return all_anchors
 
     def _meshgrid(self, x: torch.Tensor, y: torch.Tensor):
-        xx = x.repeat(y.shape[0])
-        yy = y.view(-1, 1).repeat(1, x.shape[0]).view(-1)
+        xx = x.repeat(y.size(0))
+        yy = y.view(-1, 1).repeat(1, x.size(0)).view(-1)
         return xx, yy
 
 
@@ -138,7 +138,8 @@ def delta2bbox(rois: torch.Tensor,
     pxy = ((rois_[:, :2] + rois_[:, 2:]) * 0.5)
     pwh = (rois_[:, 2:] - rois_[:, :2])
     dxy_wh = pwh * dxy
-    max_ratio = torch.abs(torch.log(torch.tensor(wh_ratio_clip)))
+    max_ratio = torch.abs(
+        torch.log(torch.tensor(wh_ratio_clip, device=rois.device)))
     dwh = dwh.clamp(min=-max_ratio, max=max_ratio)
 
     gxy = pxy + dxy_wh
@@ -167,7 +168,7 @@ def filter_scores_and_topk(scores: torch.Tensor, score_thr: float, topk: int):
     scores, idxs = scores.sort(descending=True)
     scores = scores[:num_topk]
     topk_idxs = valid_idxs[idxs[:num_topk]]
-    keep_idxs, labels = topk_idxs.unbind(dim=1)
+    keep_idxs, labels = topk_idxs[:, 0], topk_idxs[:, 1]
     return scores, labels, keep_idxs
 
 
@@ -181,7 +182,7 @@ def batched_nms(boxes: torch.Tensor,
     boxes_for_nms = boxes + offsets[:, None]
 
     split_thr = 10000
-    if boxes_for_nms.shape[0] < split_thr:
+    if boxes_for_nms.size(0) < split_thr:
         dets, keep = nms_wrapper(
             boxes_for_nms, scores, iou_threshold=iou_threshold)
         boxes = boxes[keep]
@@ -190,7 +191,7 @@ def batched_nms(boxes: torch.Tensor,
         total_mask = torch.zeros_like(scores, dtype=torch.bool)
         scores_after_nms = torch.zeros_like(scores)
         for id in torch.unique(idxs):
-            mask = (idxs == id).nonzero().view(-1)
+            mask = torch.nonzero(idxs == id).view(-1)
             dets, keep = nms_wrapper(
                 boxes_for_nms[mask], scores[mask], iou_threshold)
             total_mask[mask[keep]] = True
@@ -231,17 +232,18 @@ class SSDBBox(torch.nn.Module):
     def forward(self,
                 cls_scores: List[torch.Tensor],
                 bbox_preds: List[torch.Tensor]):
+        # cls_scores: [torch.Size([1, 486, 20, 20]), torch.Size([1, 486, 10, 10]), torch.Size([1, 486, 5, 5]), torch.Size([1, 486, 3, 3]), torch.Size([1, 486, 2, 2]), torch.Size([1, 486, 1, 1])]
+        # bbox_preds: [torch.Size([1, 24, 20, 20]), torch.Size([1, 24, 10, 10]), torch.Size([1, 24, 5, 5]), torch.Size([1, 24, 3, 3]), torch.Size([1, 24, 2, 2]), torch.Size([1, 24, 1, 1])]
         # assert len(cls_scores) == len(bbox_preds)
-        num_levels = len(cls_scores)
-
-        featmap_sizes = [cls_scores[i].shape[-2:] for i in range(num_levels)]
+        featmap_sizes = [(cls_score.size(-2), cls_score.size(-1))
+                         for cls_score in cls_scores]
         mlvl_priors = self.prior_generator(
             featmap_sizes,
             dtype=cls_scores[0].dtype,
             device=cls_scores[0].device)
 
         result_list: List[Tuple[torch.Tensor, torch.Tensor]] = []
-        for img_id in range(cls_scores[0].shape[0]):
+        for img_id in range(cls_scores[0].size(0)):
             cls_score_list = select_single_mlvl(cls_scores, img_id)
             bbox_pred_list = select_single_mlvl(bbox_preds, img_id)
             results = self._get_bboxes_single(
@@ -291,10 +293,7 @@ class SSDBBox(torch.nn.Module):
 
 
 if __name__ == '__main__':
-    # bbox_preds = [torch.Size([1, 24, 20, 20]), torch.Size([1, 24, 10, 10]), torch.Size([1, 24, 5, 5]), torch.Size([1, 24, 3, 3]), torch.Size([1, 24, 2, 2]), torch.Size([1, 24, 1, 1])]
-    # cls_scores = [torch.Size([1, 486, 20, 20]), torch.Size([1, 486, 10, 10]), torch.Size([1, 486, 5, 5]), torch.Size([1, 486, 3, 3]), torch.Size([1, 486, 2, 2]), torch.Size([1, 486, 1, 1])]
-    mod = SSDBBox()
-    mod.eval()
+    mod = SSDBBox().cuda().eval()
     mod = torch.jit.script(mod)
     print(mod.graph)
     torch.jit.save(mod, 'ssd_bbox.pt')

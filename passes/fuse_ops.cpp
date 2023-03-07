@@ -1,5 +1,8 @@
 #include "fuse_ops.h"
 
+#include <torch/csrc/jit/tensorexpr/operators/operators.h>
+
+#include "parallelize_loops.h"
 #include "tensor_ssa.h"
 #include "type_utils.h"
 #include "util/disjoint_set.h"
@@ -25,9 +28,8 @@ OperatorSet fusableOps{
     "bool copy=False, MemoryFormat? memory_format=None) -> Tensor(a)",
     "aten::to.other(Tensor(a) self, Tensor other, bool non_blocking=False, "
     "bool copy=False, MemoryFormat? memory_format=None) -> Tensor(a)",
-    "aten::new_zeros(Tensor self, SymInt[] size, *, ScalarType? dtype=None, "
-    "Layout? layout=None, Device? device=None, bool? pin_memory=None) -> "
-    "Tensor",
+    "aten::zeros(SymInt[] size, *, ScalarType? dtype=None, Layout? "
+    "layout=None, Device? device=None, bool? pin_memory=None) -> Tensor",
     "aten::arange(Scalar end, *, ScalarType? dtype=None, Layout? layout=None, "
     "Device? device=None, bool? pin_memory=None) -> Tensor",
     "aten::arange.start(Scalar start, Scalar end, *, ScalarType? dtype=None, "
@@ -81,38 +83,16 @@ OperatorSet fusableOps{
     "aten::stack(Tensor[] tensors, int dim=0) -> Tensor",
     "aten::repeat(Tensor self, SymInt[] repeats) -> Tensor",
     "aten::size.int(Tensor self, int dim) -> int",
-    "aten::size(Tensor self) -> int[]",
     "aten::__getitem__.t(t[](a) list, int idx) -> t(*)",
-    "prim::dtype(Tensor a) -> int",
-    "prim::device(Tensor a) -> Device",
     "prim::TupleUnpack(Any tup) -> ...",
 };
-
-static std::vector<Symbol> fusableOpSymbols{
-    // Tensor creation
-    aten::tensor, aten::arange, aten::to,
-    // Elementwise
-    aten::exp, aten::log, aten::sin, aten::cos, aten::sqrt, aten::sigmoid,
-    aten::clamp,
-    // Binary
-    aten::add, aten::sub, aten::mul, aten::div, aten::minimum, aten::maximum,
-    // Comparison
-    aten::eq, aten::ne, aten::lt, aten::le, aten::gt, aten::ge,
-    // View
-    aten::select, aten::slice, aten::squeeze, aten::unsqueeze, aten::reshape,
-    aten::view, aten::expand, aten::expand_as, aten::permute,
-    // Copy
-    aten::repeat, aten::cat, aten::stack,
-    // Auxiliary
-    aten::size, aten::__getitem__, prim::dtype, prim::device,
-    prim::TupleUnpack};
 
 static std::unordered_set<Symbol> fusableNoOpSymbols{
     tssa::Assign, tssa::Update, prim::ListConstruct, prim::ListUnpack};
 
 static std::unordered_set<Symbol> workingSymbols{
     // Tensor creation
-    aten::tensor, aten::arange, aten::to,
+    aten::tensor, aten::arange, aten::to, aten::zeros,
     // Elementwise
     aten::exp, aten::log, aten::sin, aten::cos, aten::sqrt, aten::sigmoid,
     aten::clamp,
@@ -130,18 +110,13 @@ static std::unordered_map<Symbol, bool (*)(Node *node)> fusabilityCheckers{
      [](Node *node) {
        return node->owningBlock() == node->input(0)->node()->owningBlock();
      }},
+    {aten::cat,
+     [](Node *node) {
+       return node->input(0)->node()->kind() != prim::ParallelMap;
+     }},
     {tssa::Assign,
      [](Node *node) { return node->input(0)->node()->kind() != aten::index; }},
 };
-
-static void addTssaSymbols() {
-  fusableNoOpSymbols.insert({tssa::Assign, tssa::Update});
-  workingSymbols.insert(tssa::Assign);
-  fusabilityCheckers.insert({tssa::Assign, [](Node *node) {
-                               return node->input(0)->node()->kind() !=
-                                      aten::index;
-                             }});
-}
 
 static bool isFusable(Node *node, bool isOut) {
   // Check if the symbol is fusable
@@ -331,6 +306,22 @@ void FuseOps(const std::shared_ptr<Graph> &graph, ValueTypeMap &refinedTypes) {
 
   // Fuse operators inside blocks
   for (auto block : blocks) fuseOpsIn(block, graph.get(), refinedTypes);
+}
+
+void printOpsInFusionGroups(const std::shared_ptr<Graph> &graph) {
+  std::set<std::string> schemas;
+  traversePreOrder(graph->block(), [&](Node *node) {
+    auto parent = node->owningBlock()->owningNode();
+    if (!parent || parent->kind() != prim::FusionGroup) return true;
+    if (!node->maybeSchema()) return true;
+    std::stringstream ss;
+    ss << node->schema();
+    schemas.insert(ss.str());
+    return true;
+  });
+  for (auto str : schemas)
+    print(std::cout, str, ' ', bool(tensorexpr::getStandardLoweringFor(str)),
+          '\n');
 }
 
 }  // namespace jit

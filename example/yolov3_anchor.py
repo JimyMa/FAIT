@@ -43,8 +43,7 @@ class YOLOAnchorGenerator(torch.nn.Module):
             ])
             base_anchors.append(base_anchor)
         base_anchors = torch.stack(base_anchors, dim=0)
-
-        return base_anchors
+        return base_anchors.cuda()
 
     def forward(self, featmap_sizes: List[Tuple[int, int]]):
         # assert self.num_levels == len(featmap_sizes)
@@ -76,19 +75,29 @@ class YOLOAnchorGenerator(torch.nn.Module):
         return all_anchors
 
     def _meshgrid(self, x: torch.Tensor, y: torch.Tensor):
-        xx = x.repeat(y.shape[0])
-        yy = y.view(-1, 1).repeat(1, x.shape[0]).view(-1)
+        xx = x.repeat(y.size(0))
+        yy = y.view(-1, 1).repeat(1, x.size(0)).view(-1)
         return xx, yy
 
 
+class YOLOV3BBox(torch.nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.anchor_generator = YOLOAnchorGenerator(
+            strides=[32, 16, 8],
+            base_sizes=[[(116, 90), (156, 198), (373, 326)],
+                        [(30, 61), (62, 45), (59, 119)],
+                        [(10, 13), (16, 30), (33, 23)]]
+        )
+
+    def forward(self, pred_maps: List[torch.Tensor]):
+        featmap_sizes = [(pred_map.size(-2), pred_map.size(-1))
+                         for pred_map in pred_maps]
+        return self.anchor_generator(featmap_sizes)
+
+
 if __name__ == '__main__':
-    mod = YOLOAnchorGenerator(
-        strides=[32, 16, 8],
-        base_sizes=[[(116, 90), (156, 198), (373, 326)],
-                    [(30, 61), (62, 45), (59, 119)],
-                    [(10, 13), (16, 30), (33, 23)]]
-    )
-    mod.eval()
+    mod = YOLOV3BBox().cuda().eval()
     mod = torch.jit.script(mod)
     print(mod.graph)
     torch.jit.save(mod, 'yolov3_anchor.pt')

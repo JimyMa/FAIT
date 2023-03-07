@@ -2,6 +2,7 @@
 
 #include <torch/csrc/jit/ir/ir_views.h>
 
+#include "canonicalize.h"
 #include "common_passes.h"
 #include "parallelize_loops.h"
 #include "tensor_ssa.h"
@@ -295,9 +296,12 @@ static void inferDtypeIn(Block *block, ValueTypeMap &refinedTypes) {
         // Use per-operator dtype function to infer dtype
         auto dtype = c10::kFloat;
         auto op = node->maybeOperator();
-        if (op && dtypeFuncs.contains(*op))
+        if (op && specialDtypeHandlers.contains(*op)) {
+          (*specialDtypeHandlers.find(*op))(node, refinedTypes);
+          continue;
+        } else if (op && dtypeFuncs.contains(*op)) {
           dtype = (*dtypeFuncs.find(*op))(node, refinedTypes);
-        else {
+        } else {
           for (auto input : node->inputs()) {
             if (!isTensor(input)) continue;
             auto inDtype = input->type()->cast<TensorType>()->scalarType();
@@ -395,9 +399,11 @@ static void inferShapeIn(Block *block, ValueTypeMap &refinedTypes) {
         if (node->inputs().size() == 1 && shape.isComplete()) {
           cnstVal = graph->insertConstant(*shape.concrete_sizes());
         } else if (node->inputs().size() == 2 && shape.size()) {
-          auto index = toIValue(node->input(1));
-          if (!index || !shape[index->toInt()]) continue;
-          cnstVal = graph->insertConstant(shape[index->toInt()]);
+          auto index = constant_as<int64_t>(node->input(1));
+          if (!index) continue;
+          if (*index < 0) *index += *shape.size();
+          if (!shape[*index]) continue;
+          cnstVal = graph->insertConstant(shape[*index].value());
         }
         if (cnstVal) {
           node->output(0)->replaceAllUsesWith(cnstVal);
@@ -437,7 +443,7 @@ static void inferShapeIn(Block *block, ValueTypeMap &refinedTypes) {
 
         // Use per-operator shape function to infer shape
         auto op = node->maybeOperator();
-        if (!(op && shapeFuncs.contains(*op))) continue;
+        if (!op || !shapeFuncs.contains(*op)) continue;
         auto shape = (*shapeFuncs.find(*op))(node, refinedTypes);
         for (auto output : outputs) {
           if (!isTensor(output)) continue;

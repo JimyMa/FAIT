@@ -1,6 +1,7 @@
 #include <torch/csrc/jit/serialization/import.h>
 #include <torchvision/vision.h>
 
+#include "passes/canonicalize.h"
 #include "passes/common_passes.h"
 #include "passes/freeze_module.h"
 #include "passes/fuse_ops.h"
@@ -39,14 +40,13 @@ int main(int argc, const char *argv[]) {
   })};
   ValueTypeMap refinedTypes;
   try {
-    Freeze(&mod);
-    auto graph = mod.get_method("forward").graph();
+  Freeze(&mod);
+  auto graph = mod.get_method("forward").graph();
+  try {
     RefineInputTypes(graph, inputTypes, refinedTypes);
+    CanonicalizeOps(graph);
     ToTensorSSA(graph);
     dumpGraphToFile(graph, "after_tssa.rb");
-    HoistLoopInvariants(graph);
-    EliminateCommonSubexprTSSA(graph);
-    dumpGraphToFile(graph, "after_cse.rb");
     ParallelizeLoops(graph);
     InferDtypeAndDevice(graph, refinedTypes);
     InferShape(graph, refinedTypes);
@@ -60,7 +60,13 @@ int main(int argc, const char *argv[]) {
     CanonicalizeFusableMaps(graph);
     dumpGraphToFile(graph, "after_back.rb");
     Validate(graph);
+    // dumpRefinedTypes(refinedTypes);
+    // printOpsInFusionGroups(graph);
   } catch (c10::Error &err) {
     std::cout << err.what();
+    dumpGraphToFile(graph, "error.rb");
+  } catch (ErrorReport &err) {
+    std::cout << err.what();
+    dumpGraphToFile(graph, "error.rb");
   }
 }

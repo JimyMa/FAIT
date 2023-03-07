@@ -11,5 +11,7 @@ extern OperatorSet fusableOps;
 
 void FuseOps(const std::shared_ptr<Graph> &graph, ValueTypeMap &refinedTypes);
 
+void printOpsInFusionGroups(const std::shared_ptr<Graph> &graph);
+
 }  // namespace jit
 }  // namespace torch
