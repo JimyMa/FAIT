@@ -72,9 +72,9 @@ class YOLOAnchorGenerator(torch.nn.Module):
             base_anchors.append(base_anchor)
         base_anchors = torch.stack(base_anchors, dim=0)
 
-        return base_anchors
+        return base_anchors.cuda()
 
-    def forward(self, featmap_sizes: List[List[int]], dtype: torch.dtype, device: torch.device):
+    def forward(self, featmap_sizes: List[Tuple[int, int]], dtype: torch.dtype, device: torch.device):
         # assert self.num_levels == len(featmap_sizes)
         multi_level_anchors = []
         for i in range(self.num_levels):
@@ -84,7 +84,7 @@ class YOLOAnchorGenerator(torch.nn.Module):
         return multi_level_anchors
 
     def single_level_grid_priors(self,
-                                 featmap_size: List[int],
+                                 featmap_size: Tuple[int, int],
                                  level_idx: int,
                                  dtype: torch.dtype,
                                  device: torch.device):
@@ -99,13 +99,13 @@ class YOLOAnchorGenerator(torch.nn.Module):
         shift_xx, shift_yy = self._meshgrid(shift_x, shift_y)
         shifts = torch.stack([shift_xx, shift_yy, shift_xx, shift_yy], dim=-1)
         all_anchors = base_anchors[None, :, :] + shifts[:, None, :]
-        all_anchors = all_anchors.view(-1, 4)
+        all_anchors = all_anchors.reshape(-1, 4)
 
         return all_anchors
 
     def _meshgrid(self, x: torch.Tensor, y: torch.Tensor):
-        xx = x.repeat(y.shape[0])
-        yy = y.view(-1, 1).repeat(1, x.shape[0]).view(-1)
+        xx = x.repeat(y.size(0))
+        yy = y.reshape(-1, 1).repeat(1, x.size(0)).reshape(-1)
         return xx, yy
 
 
@@ -121,7 +121,7 @@ def multiclass_nms(multi_bboxes: torch.Tensor,
     scores = multi_scores[:, :-1]
 
     labels = torch.arange(num_classes, dtype=torch.long, device=scores.device)
-    labels = labels.view(1, -1).expand_as(scores)
+    labels = labels.reshape(1, -1).expand_as(scores)
 
     bboxes = bboxes.reshape(-1, 4)
     scores = scores.reshape(-1)
@@ -129,7 +129,7 @@ def multiclass_nms(multi_bboxes: torch.Tensor,
 
     valid_mask = scores > score_thr
 
-    score_factors = score_factors.view(-1, 1).expand(
+    score_factors = score_factors.reshape(-1, 1).expand(
         multi_scores.size(0), num_classes)
     score_factors = score_factors.reshape(-1)
     scores = scores * score_factors
@@ -150,12 +150,11 @@ def batched_nms(boxes: torch.Tensor,
     iou_threshold = 0.45
 
     max_coordinate = boxes.max()
-    offsets = idxs.to(boxes) * (
-        max_coordinate + torch.tensor(1).to(boxes))
+    offsets = idxs.to(boxes) * (max_coordinate + 1)
     boxes_for_nms = boxes + offsets[:, None]
 
     split_thr = 10000
-    if boxes_for_nms.shape[0] < split_thr:
+    if boxes_for_nms.size(0) < split_thr:
         dets, keep = nms_wrapper(
             boxes_for_nms, scores, iou_threshold=iou_threshold)
         boxes = boxes[keep]
@@ -164,12 +163,12 @@ def batched_nms(boxes: torch.Tensor,
         total_mask = torch.zeros_like(scores, dtype=torch.bool)
         scores_after_nms = torch.zeros_like(scores)
         for id in torch.unique(idxs):
-            mask = (idxs == id).nonzero().view(-1)
+            mask = torch.nonzero(idxs == id).reshape(-1)
             dets, keep = nms_wrapper(
                 boxes_for_nms[mask], scores[mask], iou_threshold)
             total_mask[mask[keep]] = True
             scores_after_nms[mask[keep]] = dets[:, -1]
-        keep = total_mask.nonzero().view(-1)
+        keep = total_mask.nonzero().reshape(-1)
         scores, inds = scores_after_nms[keep].sort(descending=True)
         keep = keep[inds]
         boxes = boxes[keep]
@@ -201,8 +200,9 @@ class YOLOV3BBox(torch.nn.Module):
 
     def forward(self, pred_maps: List[torch.Tensor]):
         featmap_strides = [32, 16, 8]
-        num_imgs = pred_maps[0].shape[0]
-        featmap_sizes = [pred_map.shape[-2:] for pred_map in pred_maps]
+        num_imgs = pred_maps[0].size(0)
+        featmap_sizes = [(pred_map.size(-2), pred_map.size(-1))
+                         for pred_map in pred_maps]
 
         mlvl_anchors = self.prior_generator(
             featmap_sizes, dtype=pred_maps[0].dtype, device=pred_maps[0].device)
@@ -225,8 +225,7 @@ class YOLOV3BBox(torch.nn.Module):
                                        flatten_bbox_preds,
                                        flatten_strides.unsqueeze(-1))
 
-        padding = flatten_bboxes.new_zeros(num_imgs, flatten_bboxes.shape[1],
-                                           1)
+        padding = flatten_bboxes.new_zeros(num_imgs, flatten_bboxes.size(1), 1)
         flatten_cls_scores = torch.cat([flatten_cls_scores, padding], dim=-1)
 
         det_results: List[Tuple[torch.Tensor, torch.Tensor]] = []
@@ -245,8 +244,7 @@ class YOLOV3BBox(torch.nn.Module):
 
 if __name__ == '__main__':
     # pred_maps = [torch.Size([1, 255, 10, 10]), torch.Size([1, 255, 20, 20]), torch.Size([1, 255, 40, 40])]
-    mod = YOLOV3BBox()
-    mod.eval()
+    mod = YOLOV3BBox().cuda().eval()
     mod = torch.jit.script(mod)
     # mod = torch.jit.freeze(mod)
     print(mod.graph)

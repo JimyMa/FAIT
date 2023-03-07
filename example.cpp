@@ -12,7 +12,6 @@
 #include <torch/csrc/jit/api/function_impl.h>
 #include <torch/csrc/jit/ir/ir.h>
 #include <torch/csrc/jit/serialization/import.h>
-#include <torch/csrc/jit/runtime/interpreter.h>
 #include <torchvision/vision.h>
 
 #include "passes/common_passes.h"
@@ -29,8 +28,8 @@ using namespace torch::jit;
 
 static void dumpGraphToFile(const std::shared_ptr<Graph> &graph,
                             const std::string &path) {
-    std::ofstream ofs(path);
-    graph->print(ofs);
+  std::ofstream ofs(path);
+  graph->print(ofs);
 }
 
 int main(int argc, const char *argv[]) {
@@ -97,4 +96,56 @@ int main(int argc, const char *argv[]) {
     std::cout << at::allclose(output_tss_parallel[0], output_origin[0]) << std::endl;
     
 
+=======
+  if (argc < 2) {
+    std::cerr << "usage: example <path-to-script-module>\n";
+    return 1;
+  }
+  Module mod;
+  try {
+    mod = load(argv[1]);
+  } catch (c10::Error &e) {
+    std::cerr << e.what();
+    return 1;
+  } catch (ErrorReport &e) {
+    std::cerr << e.what();
+    return 1;
+  }
+  std::vector<TypePtr> inputTypes{TupleType::create({
+      TensorType::createContiguous(c10::kFloat, c10::kCUDA, {1, 255, 10, 10}),
+      TensorType::createContiguous(c10::kFloat, c10::kCUDA, {1, 255, 20, 20}),
+      TensorType::createContiguous(c10::kFloat, c10::kCUDA, {1, 255, 40, 40}),
+  })};
+  ValueTypeMap refinedTypes;
+  try {
+  Freeze(&mod);
+  auto graph = mod.get_method("forward").graph();
+  try {
+    RefineInputTypes(graph, inputTypes, refinedTypes);
+    CanonicalizeOps(graph);
+    ToTensorSSA(graph);
+    dumpGraphToFile(graph, "after_tssa.rb");
+    ParallelizeLoops(graph);
+    InferDtypeAndDevice(graph, refinedTypes);
+    InferShape(graph, refinedTypes);
+    dumpGraphToFile(graph, "after_par.rb");
+    FuseOps(graph, refinedTypes);
+    dumpGraphToFile(graph, "after_fuse.rb");
+    SplitParallelMaps(graph, refinedTypes);
+    dumpGraphToFile(graph, "after_split.rb");
+    ToMutableTensors(graph);
+    ConvertInfusibleMapsToLoops(graph, refinedTypes);
+    CanonicalizeFusableMaps(graph);
+    dumpGraphToFile(graph, "after_back.rb");
+    Validate(graph);
+    // dumpRefinedTypes(refinedTypes);
+    // printOpsInFusionGroups(graph);
+  } catch (c10::Error &err) {
+    std::cout << err.what();
+    dumpGraphToFile(graph, "error.rb");
+  } catch (ErrorReport &err) {
+    std::cout << err.what();
+    dumpGraphToFile(graph, "error.rb");
+  }
+>>>>>>> 65cbe7c1db1b5eec5f833af7333acaf39fb9355c
 }

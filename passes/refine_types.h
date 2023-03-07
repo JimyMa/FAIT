@@ -28,28 +28,34 @@ void InferShape(const std::shared_ptr<Graph> &graph,
                 ValueTypeMap &refinedTypes);
 
 inline TypePtr getRefinedType(Value *value, ValueTypeMap &refinedTypes) {
-    if (refinedTypes.count(value))
-        return refinedTypes[value];
-    else
-        return value->type();
+  if (refinedTypes.count(value))
+    return refinedTypes[value];
+  else
+    return value->type();
 }
 
 inline void transferRefinedType(Value *src, Value *dst,
                                 ValueTypeMap &refinedTypes) {
-    if (!refinedTypes.count(src)) return;
-    refinedTypes[dst] = refinedTypes[src];
+  if (!refinedTypes.count(src)) return;
+  refinedTypes[dst] = refinedTypes[src];
 }
+
+void transferRefinedTypesOf(Node *src, Node *dst, ValueTypeMap &refinedTypes);
 
 void setRefinedType(Value *value, const TypePtr &newType,
                     ValueTypeMap &refinedTypes);
 
 void removeDeadRefinedTypes(ValueTypeMap &refinedTypes, Graph *graph);
 
+void dumpRefinedTypes(const ValueTypeMap &refinedTypes);
+
 /// Lookup tables for tensor type refinement functions
 
 extern OperatorMap<c10::SymbolicShape (*)(Node *, ValueTypeMap &)> shapeFuncs;
 extern OperatorMap<c10::ScalarType (*)(Node *, ValueTypeMap &)> dtypeFuncs;
 extern OperatorMap<c10::Device (*)(Node *, ValueTypeMap &)> deviceFuncs;
+
+extern OperatorMap<void (*)(Node *, ValueTypeMap &)> specialDtypeHandlers;
 
 void initTensorTypeFuncs();
 

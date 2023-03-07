@@ -26,10 +26,20 @@ void ParallelizeLoops(const std::shared_ptr<Graph> &graph);
 void SplitParallelMaps(const std::shared_ptr<Graph> &graph,
                        ValueTypeMap &refinedTypes);
 
+/// @brief Convert `ParallelMap`s without a `FusionGroup` to normal for-loops.
+/// @param graph The graph to be processed.
+void ConvertInfusibleMapsToLoops(const std::shared_ptr<Graph> &graph,
+                                 ValueTypeMap &refinedTypes);
+
+/// @brief Reorder block parameters of `FusionGroup` inside `ParallelMap` such
+/// that they are consistent with the ones of `ParallelMap`.
+/// @param graph The graph to be processed.
+void CanonicalizeFusableMaps(const std::shared_ptr<Graph> &graph);
+
 inline c10::optional<size_t> getParMapTripCount(Node *parMap) {
-    auto lenIVal = toIValue(parMap->input(0));
-    return mapOpt<size_t>(
-        lenIVal, [](const IValue &ival) { return size_t(ival.toInt()); });
+  auto lenIVal = toIValue(parMap->input(0));
+  return mapOpt<size_t>(
+      lenIVal, [](const IValue &ival) { return size_t(ival.toInt()); });
 }
 
 }  // namespace jit

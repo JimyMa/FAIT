@@ -1,9 +1,5 @@
 #include "traits.h"
 
 namespace torch {
-namespace jit {
-
-
-
-}
+namespace jit {}
 }  // namespace torch
