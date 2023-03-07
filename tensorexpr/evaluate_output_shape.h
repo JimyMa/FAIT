@@ -1,17 +1,18 @@
 #ifndef LONG_TAIL_EVALUATE_OUTPUT_SHAPE_H
 #define LONG_TAIL_EVALUATE_OUTPUT_SHAPE_H
 
+#include "torch/csrc/jit/tensorexpr/fwd_decls.h"
 #include "torch/csrc/jit/tensorexpr/ir.h"
 #include "torch/csrc/jit/tensorexpr/ir_mutator.h"
 #include "torch/csrc/jit/tensorexpr/ir_visitor.h"
-#include "torch/csrc/jit/tensorexpr/fwd_decls.h"
 
 using namespace torch::jit::tensorexpr;
 
 class TORCH_API OutputShapeEvaluator : public IRVisitor {
-public:
+ public:
   OutputShapeEvaluator(const std::unordered_map<VarPtr, int64_t>& dims_map,
-                       int64_t degree) : dims_map_(dims_map), degree_(degree) {}
+                       int64_t degree)
+      : dims_map_(dims_map), degree_(degree) {}
   ~OutputShapeEvaluator() override = default;
 
   void visit(VarPtr v) override;
@@ -25,11 +26,9 @@ public:
   void visit(MinPtr v) override;
   void visit(CompareSelectPtr v) override;
 
-  int64_t get_value() {
-    return _tmp_value;
-  }
+  int64_t get_value() { return _tmp_value; }
 
-private:
+ private:
   int64_t _tmp_value{-1};
   std::unordered_map<VarPtr, int64_t> dims_map_;
   int64_t degree_;
@@ -37,7 +36,7 @@ private:
 
 class TORCH_API EvaluateOutputShape {
  public:
-  static int64_t run(ExprPtr s,  /* Functor Statement */
+  static int64_t run(ExprPtr s, /* Functor Statement */
                      const std::unordered_map<VarPtr, int64_t>& dims_map,
                      int64_t degree) {
     OutputShapeEvaluator evaluator(dims_map, degree);
@@ -46,7 +45,4 @@ class TORCH_API EvaluateOutputShape {
   }
 };
 
-#endif //LONG_TAIL_EVALUATE_OUTPUT_SHAPE_H
-
-
-
+#endif  // LONG_TAIL_EVALUATE_OUTPUT_SHAPE_H

@@ -5,19 +5,17 @@
 #ifndef LONG_TAIL_GRAPH_BUILDER_H
 #define LONG_TAIL_GRAPH_BUILDER_H
 #include <ATen/Context.h>
-#include <ATen/cuda/CUDAGeneratorImpl.h>
 #include <ATen/core/interned_strings.h>
-
+#include <ATen/cuda/CUDAGeneratorImpl.h>
 #include <c10/cuda/CUDAFunctions.h>
 
 #include <functional>
 #include <memory>
+#include <string>
 
 #include "fuser/solve_update.h"
-#include "passes/tensor_ssa.h"
 #include "fuser/tssa_nnc_func.h"
-
-#include <string>
+#include "passes/tensor_ssa.h"
 // #include <torch/csrc/jit/ir/ir.h>
 // #include <torch/csrc/jit/runtime/interpreter.h>
 // #include <torch/csrc/jit/tensorexpr/analysis.h>
@@ -29,37 +27,37 @@
 // #include <torch/csrc/jit/tensorexpr/types.h>
 #include <torch/csrc/jit/tensorexpr/lowerings.h>
 #include <torch/csrc/jit/tensorexpr/operators/misc.h>
+
 #include <unordered_map>
 #include <vector>
 
 using namespace torch::jit::tensorexpr;
 
-
 namespace torch {
 namespace jit {
 
-using NNCShapeFunction = std::function<std::vector<ExprHandle>(std::vector<ArgValue>)>;
+using NNCShapeFunction =
+    std::function<std::vector<ExprHandle>(std::vector<ArgValue>)>;
 
 class GraphBuilder {
  public:
   GraphBuilder(const Node* node);
   void run(Stack& stack) const;
 
-  void runFast(
-    const std::vector<void*>& inputs,
-    const std::vector<void*>& outputs) const;
+  void runFast(const std::vector<void*>& inputs,
+               const std::vector<void*>& outputs) const;
 
   void recompile();
 
-  const std::shared_ptr<Graph> graph() {
-    return graph_;
-  }
+  const std::shared_ptr<Graph> graph() { return graph_; }
 
  private:
   void compile();
   std::vector<ArgValue> get_input_expr(Node* node);
-  std::vector<int64_t> get_stride_by_shape(const std::vector<int64_t> shape) const;
-  std::vector<ExprHandle> get_stride_by_expr_dims(const std::vector<ExprHandle> expr_shape) const;
+  std::vector<int64_t> get_stride_by_shape(
+      const std::vector<int64_t> shape) const;
+  std::vector<ExprHandle> get_stride_by_expr_dims(
+      const std::vector<ExprHandle> expr_shape) const;
   Dtype get_scalar_type_by_value_type(TypePtr value_type);
   VarHandle get_const_var_by_value(const Value* value);
 
@@ -71,7 +69,8 @@ class GraphBuilder {
     if (!name_hash_map_.count(base_name)) {
       name_hash_map_[base_name] = 0;
     }
-    std::string result = base_name + "_" + std::to_string(name_hash_map_[base_name]);
+    std::string result =
+        base_name + "_" + std::to_string(name_hash_map_[base_name]);
     name_hash_map_[base_name] += 1;
     return result;
   }
@@ -107,19 +106,19 @@ class GraphBuilder {
 
   std::shared_ptr<Graph> graph_;
 
-  std::unordered_map<c10::Symbol, NNCLoweringFunction>
-  custom_lowerings_ = {{c10::tssa::Assign, computeAssign},
-                       {c10::aten::select, computeSelect},
-                       {c10::aten::slice, computeSlice},
-                       {c10::tssa::SliceSet, computeSliceSet},
-                       {c10::tssa::SelectSet, computeSelectSet}};
-  
-  std::unordered_map<c10::Symbol, NNCShapeFunction>
-  shape_func = {{c10::aten::add, computePointwiseShape},
-                {c10::aten::select, computeSelectShape},
-                {c10::aten::slice, computeSliceShape},
-                {c10::aten::permute, computePermuteShape},
-                {c10::aten::reshape, computeReshapeShape}};
+  std::unordered_map<c10::Symbol, NNCLoweringFunction> custom_lowerings_ = {
+      {c10::tssa::Assign, computeAssign},
+      {c10::aten::select, computeSelect},
+      {c10::aten::slice, computeSlice},
+      {c10::tssa::SliceSet, computeSliceSet},
+      {c10::tssa::SelectSet, computeSelectSet}};
+
+  std::unordered_map<c10::Symbol, NNCShapeFunction> shape_func = {
+      {c10::aten::add, computePointwiseShape},
+      {c10::aten::select, computeSelectShape},
+      {c10::aten::slice, computeSliceShape},
+      {c10::aten::permute, computePermuteShape},
+      {c10::aten::reshape, computeReshapeShape}};
 
   std::unique_ptr<CodeGen> codegen_;
 };
@@ -127,4 +126,4 @@ class GraphBuilder {
 }  // namespace jit
 }  // namespace torch
 
-#endif //LONG_TAIL_GRAPH_BUILDER_H
+#endif  // LONG_TAIL_GRAPH_BUILDER_H

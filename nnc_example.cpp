@@ -3,15 +3,13 @@
 //
 
 #include "ATen/Context.h"
-
+#include "tensorexpr/functor_parallization.h"
 #include "torch/csrc/jit/ir/ir.h"
 #include "torch/csrc/jit/tensorexpr/analysis.h"
 #include "torch/csrc/jit/tensorexpr/codegen.h"
 #include "torch/csrc/jit/tensorexpr/expr.h"
 #include "torch/csrc/jit/tensorexpr/ir_simplifier.h"
 #include "torch/csrc/jit/tensorexpr/loopnest.h"
-
-#include "tensorexpr/functor_parallization.h"
 
 using namespace torch::jit::tensorexpr;
 
@@ -49,37 +47,29 @@ int main() {
   Tensor e_tensor(nullptr, nullptr);
 
   // Compute Op Define
-  c_tensor = Compute(
-          "c_buf",
-          {LongImm::make(N), LongImm::make(N)},
-          [&](const std::vector<VarHandle>& axes) {
-            return a_buf.load(axes[0], axes[1]) + b_buf.load(axes[0], axes[1]);
-          });
+  c_tensor = Compute("c_buf", {LongImm::make(N), LongImm::make(N)},
+                     [&](const std::vector<VarHandle>& axes) {
+                       return a_buf.load(axes[0], axes[1]) +
+                              b_buf.load(axes[0], axes[1]);
+                     });
 
-  d_tensor = Compute(
-          "d_buf",
-          {LongImm::make(N), LongImm::make(N)},
-          [&](const std::vector<VarHandle>& axes) {
-            return b_buf.load(axes[0], axes[1]) + c_tensor.load(axes[0], axes[1]);
-          });
+  d_tensor = Compute("d_buf", {LongImm::make(N), LongImm::make(N)},
+                     [&](const std::vector<VarHandle>& axes) {
+                       return b_buf.load(axes[0], axes[1]) +
+                              c_tensor.load(axes[0], axes[1]);
+                     });
 
-  e_tensor = Compute(
-          "e_buf",
-          {LongImm::make(N)},
-          [&](const std::vector<VarHandle>& axes) {
-            return d_tensor.load(axes[0], 0) + scalar_0;
-          });
+  e_tensor = Compute("e_buf", {LongImm::make(N)},
+                     [&](const std::vector<VarHandle>& axes) {
+                       return d_tensor.load(axes[0], 0) + scalar_0;
+                     });
 
   // Compute Op to Stmt
   auto block = alloc<Block>(std::vector<StmtPtr>({}));
-  if (scalar_0_tensor.stmt())
-    block->append_stmt(scalar_0_tensor.stmt());
-  if (c_tensor.stmt())
-    block->append_stmt(c_tensor.stmt());
-  if (d_tensor.stmt())
-    block->append_stmt(d_tensor.stmt());
-  if (e_tensor.stmt())
-    block->append_stmt(e_tensor.stmt());
+  if (scalar_0_tensor.stmt()) block->append_stmt(scalar_0_tensor.stmt());
+  if (c_tensor.stmt()) block->append_stmt(c_tensor.stmt());
+  if (d_tensor.stmt()) block->append_stmt(d_tensor.stmt());
+  if (e_tensor.stmt()) block->append_stmt(e_tensor.stmt());
 
   // Set Statement output
   bufOutputs_.insert(e_tensor.buf());
@@ -106,6 +96,7 @@ int main() {
       // This happens when Buf is 0-dim
       continue;
     }
+
     ForPtr flattened = nullptr;
     LoopNest::flatten(loops, &flattened);
     assert(flattened);
@@ -129,10 +120,8 @@ int main() {
   // Functor Parallelization
   // Add a new loop
   auto new_loop_axis = VarHandle("new_axis_i", kLong);
-  stmt_ = alloc<For>(new_loop_axis.node(),
-                     immLike(new_loop_axis, 0),
-                     LongImm::make(3).node(),
-                     stmt_);
+  stmt_ = alloc<For>(new_loop_axis.node(), immLike(new_loop_axis, 0),
+                     LongImm::make(3).node(), stmt_);
 
   // Change Functor Load / Store to Parallization Load / Store
   BufHandle a_0_buf("a_0_tensor", {N, N}, kDouble);
@@ -142,16 +131,13 @@ int main() {
   BufHandle e_0_tensor("e_0_tensor", {N, N}, kDouble);
   BufHandle e_1_tensor("e_1_tensor", {N, N}, kDouble);
   BufHandle e_2_tensor("e_2_tensor", {N, N}, kDouble);
-  stmt_ = FunctorParallization::parallel_functor_load(stmt_, 3, new_loop_axis.node(),
-                                                      {
-                                                        {a_buf.node(), {a_0_buf, a_1_buf, a_2_buf}}
-                                                      },
-                                                      {});
+  stmt_ = FunctorParallization::parallel_functor_load(
+      stmt_, 3, new_loop_axis.node(),
+      {{a_buf.node(), {a_0_buf, a_1_buf, a_2_buf}}}, {});
 
-  stmt_ = FunctorParallization::parallel_functor_store(stmt_, 3, new_loop_axis.node(),
-                                                       {
-                                                         {e_tensor.buf(), {e_0_tensor, e_1_tensor, e_2_tensor}}
-                                                       });
+  stmt_ = FunctorParallization::parallel_functor_store(
+      stmt_, 3, new_loop_axis.node(),
+      {{e_tensor.buf(), {e_0_tensor, e_1_tensor, e_2_tensor}}});
   static_to<For>(stmt_)->set_gpu_block_index(1);
   std::cout << to_string(stmt_) << std::endl;
 
@@ -173,11 +159,7 @@ int main() {
   bufferArgs_.emplace_back(e_2_tensor);
 
   // NNC CodeGen
-  auto codegen_ = CreateCodeGen(
-          "cuda_codegen",
-          stmt_,
-          bufferArgs_,
-          at::kCUDA);
+  auto codegen_ = CreateCodeGen("cuda_codegen", stmt_, bufferArgs_, at::kCUDA);
 
   std::cout << codegen_->getCodeText() << std::endl;
 
@@ -188,32 +170,36 @@ int main() {
   auto a_2_runtime = at::ones({N, N}, at::kDouble).cuda() * 3.0;
   auto b_runtime = at::ones({N, N}, at::kDouble).cuda();
   auto scalar_0_runtime = 2.0;
-  std::vector<c10::IValue> inputs = {a_0_runtime, a_1_runtime, a_2_runtime, b_runtime, scalar_0_runtime};
+  std::vector<c10::IValue> inputs = {a_0_runtime, a_1_runtime, a_2_runtime,
+                                     b_runtime, scalar_0_runtime};
 
   // Outputs
   auto e_0_runtime = codegen_->empty_strided(
-          {N, },
-          {1, },
-          c10::kDouble,
-          c10::kStrided,
-          c10::kCUDA,
-          false);
+      {
+          N,
+      },
+      {
+          1,
+      },
+      c10::kDouble, c10::kStrided, c10::kCUDA, false);
 
   auto e_1_runtime = codegen_->empty_strided(
-          {N, },
-          {1, },
-          c10::kDouble,
-          c10::kStrided,
-          c10::kCUDA,
-          false);
+      {
+          N,
+      },
+      {
+          1,
+      },
+      c10::kDouble, c10::kStrided, c10::kCUDA, false);
 
   auto e_2_runtime = codegen_->empty_strided(
-          {N, },
-          {1, },
-          c10::kDouble,
-          c10::kStrided,
-          c10::kCUDA,
-          false);
+      {
+          N,
+      },
+      {
+          1,
+      },
+      c10::kDouble, c10::kStrided, c10::kCUDA, false);
 
   // Get CodeGen Runtime Arguments
   std::vector<CodeGen::CallArg> runArgs;
