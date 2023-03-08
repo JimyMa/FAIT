@@ -69,15 +69,15 @@ int main(int argc, const char *argv[]) {
     SplitParallelMaps(graph, refinedTypes);
     dumpGraphToFile(graph, "after_split.rb");
     ToMutableTensors(graph);
-    CanonicalizeFusableMaps(graph);
     ConvertInfusibleMapsToLoops(graph, refinedTypes);
+    CanonicalizeFusableMaps(graph);
     dumpGraphToFile(graph, "after_back.rb");
     MapFunctorToParallization(graph, refinedTypes);
     FusedOpToParallization(graph, refinedTypes);
     dumpGraphToFile(graph, "after_codegen.rb");
     Validate(graph);
-    dumpRefinedTypes(refinedTypes);
-    printOpsInFusionGroups(graph);
+    // dumpRefinedTypes(refinedTypes);
+    // printOpsInFusionGroups(graph);
   } catch (c10::Error &err) {
     std::cout << err.what();
     dumpGraphToFile(graph, "error.rb");

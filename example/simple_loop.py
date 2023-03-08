@@ -11,7 +11,7 @@ class SimpleLoop(torch.nn.Module):
         flatten_preds = []
         flatten_strides = []
         for pred, stride in zip(pred_maps, featmap_strides):
-            pred = pred.permute(0, 2, 3, 1)
+            pred = pred.permute(0, 2, 3, 1).reshape(num_imgs, -1, 85)
             pred[..., :2].sigmoid_()
             flatten_preds.append(pred)
             flatten_strides.append(torch.tensor(stride).expand(pred.size(1)))
