@@ -76,6 +76,7 @@ class GraphBuilder {
   }
 
   bool verbose_ = false;
+  bool is_parallel_map_ = true;
 
   int64_t degree_ = 1;
   std::vector<TypePtr> refined_types_;

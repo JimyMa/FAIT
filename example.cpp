@@ -19,6 +19,7 @@
 #include "passes/fuse_ops.h"
 #include "passes/parallelize_loops.h"
 #include "passes/refine_types.h"
+#include "passes/te_fused_op.h"
 #include "passes/te_op.h"
 #include "passes/tensor_ssa.h"
 #include "passes/validate_graph.h"
@@ -49,11 +50,8 @@ int main(int argc, const char *argv[]) {
   }
   auto graph = mod.get_method("forward").graph();
   auto origin_graph = graph->copy();
-  std::vector<TypePtr> inputTypes{TupleType::create({
-      TensorType::createContiguous(c10::kFloat, c10::kCUDA, {1, 85, 1, 1}),
-      TensorType::createContiguous(c10::kFloat, c10::kCUDA, {1, 85, 20, 20}),
-      TensorType::createContiguous(c10::kFloat, c10::kCUDA, {1, 85, 40, 40}),
-  })};
+  std::vector<TypePtr> inputTypes{
+      TensorType::createContiguous(c10::kFloat, c10::kCUDA, {1, 85, 1, 1})};
   ValueTypeMap refinedTypes;
   try {
     RefineInputTypes(graph, inputTypes, refinedTypes);
@@ -71,26 +69,29 @@ int main(int argc, const char *argv[]) {
     SplitParallelMaps(graph, refinedTypes);
     dumpGraphToFile(graph, "after_split.rb");
     MapFunctorToParallization(graph, refinedTypes);
+    FusedOpToParallization(graph, refinedTypes);
     dumpGraphToFile(graph, "after_codegen.rb");
     Validate(graph);
   } catch (c10::Error &err) {
     std::cout << err.what();
   }
   // Runtime
-  at::List<at::Tensor> a_list = {
-      at::ones({1, 85, 1, 1}).to(at::kFloat).cuda() * 0,
-      at::ones({1, 85, 20, 20}).to(at::kFloat).cuda() * 1,
-      at::ones({1, 85, 40, 40}).to(at::kFloat).cuda() * 2};
+  // at::List<at::Tensor> a_list = {
+  //     at::ones({1, 85, 1, 1}).to(at::kFloat).cuda() * 0,
+  //     at::ones({1, 85, 20, 20}).to(at::kFloat).cuda() * 1,
+  //     at::ones({1, 85, 40, 40}).to(at::kFloat).cuda() * 2};
   // at::List<double> b_list = {2.0, 3, 4};
+  at::Tensor a = at::ones({1, 85, 1, 1}).to(at::kFloat).cuda() * 2;
   Code code(graph, "");
-  Stack input = {"", a_list};
+  Stack input = {"", a};
   torch::jit::InterpreterState(code).run(input);
-  auto output_tss_parallel = input[0].toTensorList();
+  auto output_tss_parallel = input[0].toTensor();
 
   GraphFunction origin_function("simple_simple_loop", origin_graph, nullptr);
-  input = {"", a_list};
+  input = {"", a};
   origin_function.run(input);
-  auto output_origin = input[0].toTensorList();
-  std::cout << at::allclose(output_tss_parallel[0], output_origin[0])
-            << std::endl;
+  auto output_origin = input[0].toTensor();
+  std::cout << output_tss_parallel << std::endl;
+  std::cout << "Checking Pass: "
+            << at::allclose(output_tss_parallel, output_origin) << std::endl;
 }

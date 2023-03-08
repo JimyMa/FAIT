@@ -150,11 +150,15 @@ Tensor computeSliceSet(const std::vector<ArgValue>& inputValues,
                                           slice_setter->load(slice_setter_axes),
                                           CompareSelectOperation::kGE);
 
-        auto cond_1 = CompareSelect::make(
-            LongImm::make(0), (axes[dim] - start_expr) % step_expr,
-            src->load(axes), cond_0, CompareSelectOperation::kNE);
+        auto cond_1 =
+            CompareSelect::make(axes[dim], start_expr, src->load(axes), cond_0,
+                                CompareSelectOperation::kLT);
 
-        return cond_1;
+        auto cond_2 = CompareSelect::make(
+            LongImm::make(0), (axes[dim] - start_expr) % step_expr,
+            src->load(axes), cond_1, CompareSelectOperation::kNE);
+
+        return cond_2;
       });
 }
 

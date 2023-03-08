@@ -91,7 +91,8 @@ GraphBuilder::GraphBuilder(const Node* node)
     : graph_(node->g(attr::Subgraph)),
       refined_types_(node->tys(c10::tssa::input_refine_types)),
       is_parallelled_args_(node->is(c10::tssa::is_parallelled_args)),
-      degree_(node->i(c10::tssa::parallel_degree)) {
+      degree_(node->i(c10::tssa::parallel_degree)),
+      is_parallel_map_(node->i(c10::tssa::is_parallel_map)) {
   try {
     compile();
   } catch (...) {
@@ -145,6 +146,7 @@ void GraphBuilder::compile() {
   for (auto is_paralleled_arg : is_parallelled_args_) {
     auto graph_arg = graph_->inputs()[graph_args_idx];
     graph_args_idx += 1;
+
     if (is_paralleled_arg) {
       auto type_arg = refined_types_[parallel_args_idx];
       parallel_args_idx += 1;
@@ -535,6 +537,30 @@ std::vector<CodeGen::CallArg> GraphBuilder::prepareRunArgs(
       for (int i = 0; i < degree_; i++) {
         runArgs.emplace_back(list_input[i].get().toBool());
       }
+    } else if (input.isTensor()) {
+      std::cout << "is_tensor" << std::endl;
+      auto tensor_input = input.toTensor();
+      auto functor_shape_expr = FunctorShapeMap_.at(input_value);
+
+      for (int i = 0; i < degree_; i++) {
+        std::vector<CodeGen::CallArg> shape_args_per_degree;
+        if (verbose_) std::cout << "degree: " << i << std::endl;
+        runArgs.emplace_back(tensor_input.data_ptr());
+        auto tensor_type = refined_types_[input_idx]->cast<TensorType>();
+        for (int64_t dim_idx = 0; dim_idx < tensor_type->sizes().size();
+             dim_idx++) {
+          if (!tensor_type->symbolic_sizes()[dim_idx].is_static()) {
+            shape_args_per_degree.emplace_back(tensor_input.size(dim_idx));
+            VarPtr functor_shape_var =
+                functor_shape_expr[dim_idx].AsNode<Var>();
+            dim_map[ShapeVarParallelFunctorMap.at(functor_shape_var)[i]
+                        .node()] = tensor_input.size(dim_idx);
+          }
+        }
+
+        shape_args_degree.emplace_back(shape_args_per_degree);
+        if (verbose_) std::cout << "degree: " << i << std::endl;
+      }
     } else {
       throw unsupported_dtype();
     }
@@ -605,7 +631,11 @@ void GraphBuilder::runKernel(Stack& stack) const {
   drop(stack, nInputs_);
 
   for (auto& o : outputs) {
-    push_one(stack, std::move(at::List<at::Tensor>(o)));
+    if (is_parallel_map_) {
+      push_one(stack, std::move(at::List<at::Tensor>(o)));
+    } else {
+      push_one(stack, std::move(o[0]));
+    }
   }
 }
 

@@ -28,14 +28,14 @@ target_link_libraries(long-tail ${TORCH_LIBRARIES} TorchVision::TorchVision)
 add_executable(example ${EXAMPLE})
 target_link_libraries(example long-tail)
 
-add_executable(nnc_example ${NNC_EXAMPLE})
-target_link_libraries(nnc_example long-tail)
+# add_executable(nnc_example ${NNC_EXAMPLE})
+# target_link_libraries(nnc_example long-tail)
 
-add_executable(nnc_example_dyn_shape ${NNC_EXAMPLE_DYN_SHAPE})
-target_link_libraries(nnc_example_dyn_shape long-tail)
+# add_executable(nnc_example_dyn_shape ${NNC_EXAMPLE_DYN_SHAPE})
+# target_link_libraries(nnc_example_dyn_shape long-tail)
 
-add_executable(simple_loop_nnc ${SIMPLE_LOOP_NNC})
-target_link_libraries(simple_loop_nnc long-tail)
+# add_executable(simple_loop_nnc ${SIMPLE_LOOP_NNC})
+# target_link_libraries(simple_loop_nnc long-tail)
 
 
 

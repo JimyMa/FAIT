@@ -10,20 +10,24 @@
 namespace c10 {
 namespace tssa {
 
-static auto ParallelledFunctor = Symbol::fromQualString("tssa::ParallelledFunctor");
+static auto ParallelledFunctor =
+    Symbol::fromQualString("tssa::ParallelledFunctor");
 static auto parallel_degree = Symbol::fromQualString("attr::parallel_degree");
-static auto is_parallelled_args = Symbol::fromQualString("attr::is_parallelled_args");
-static auto input_refine_types = Symbol::fromQualString("attr::input_refine_types");
+static auto is_parallelled_args =
+    Symbol::fromQualString("attr::is_parallelled_args");
+static auto input_refine_types =
+    Symbol::fromQualString("attr::input_refine_types");
+static auto is_parallel_map = Symbol::fromQualString("attr::is_parallel_map");
 
 }  // namespace tssa
 }  // namespace c10
 
 namespace torch {
 namespace jit {
-void MapFunctorToParallization(const std::shared_ptr<Graph> &graph,
-                               std::unordered_map<Value *, TypePtr>& refine_types);
-}  // namespace torch
+void MapFunctorToParallization(
+    const std::shared_ptr<Graph> &graph,
+    std::unordered_map<Value *, TypePtr> &refine_types);
 }  // namespace jit
+}  // namespace torch
 
-
-#endif //LONG_TAIL_TE_OP_H
+#endif  // LONG_TAIL_TE_OP_H
