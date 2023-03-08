@@ -538,7 +538,6 @@ std::vector<CodeGen::CallArg> GraphBuilder::prepareRunArgs(
         runArgs.emplace_back(list_input[i].get().toBool());
       }
     } else if (input.isTensor()) {
-      std::cout << "is_tensor" << std::endl;
       auto tensor_input = input.toTensor();
       auto functor_shape_expr = FunctorShapeMap_.at(input_value);
 

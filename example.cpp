@@ -14,6 +14,7 @@
 #include <torch/csrc/jit/serialization/import.h>
 #include <torchvision/vision.h>
 
+#include "passes/canonicalize.h"
 #include "passes/common_passes.h"
 #include "passes/freeze_module.h"
 #include "passes/fuse_ops.h"
@@ -48,6 +49,7 @@ int main(int argc, const char *argv[]) {
     std::cerr << e.what();
     return 1;
   }
+  Freeze(&mod);
   auto graph = mod.get_method("forward").graph();
   auto origin_graph = graph->copy();
   std::vector<TypePtr> inputTypes{
@@ -55,11 +57,9 @@ int main(int argc, const char *argv[]) {
   ValueTypeMap refinedTypes;
   try {
     RefineInputTypes(graph, inputTypes, refinedTypes);
+    CanonicalizeOps(graph);
     ToTensorSSA(graph);
     dumpGraphToFile(graph, "after_tssa.rb");
-    HoistLoopInvariants(graph);
-    EliminateCommonSubexprTSSA(graph);
-    dumpGraphToFile(graph, "after_cse.rb");
     ParallelizeLoops(graph);
     InferDtypeAndDevice(graph, refinedTypes);
     InferShape(graph, refinedTypes);
@@ -68,12 +68,22 @@ int main(int argc, const char *argv[]) {
     dumpGraphToFile(graph, "after_fuse.rb");
     SplitParallelMaps(graph, refinedTypes);
     dumpGraphToFile(graph, "after_split.rb");
+    ToMutableTensors(graph);
+    CanonicalizeFusableMaps(graph);
+    ConvertInfusibleMapsToLoops(graph, refinedTypes);
+    dumpGraphToFile(graph, "after_back.rb");
     MapFunctorToParallization(graph, refinedTypes);
     FusedOpToParallization(graph, refinedTypes);
     dumpGraphToFile(graph, "after_codegen.rb");
     Validate(graph);
+    dumpRefinedTypes(refinedTypes);
+    printOpsInFusionGroups(graph);
   } catch (c10::Error &err) {
     std::cout << err.what();
+    dumpGraphToFile(graph, "error.rb");
+  } catch (ErrorReport &err) {
+    std::cout << err.what();
+    dumpGraphToFile(graph, "error.rb");
   }
   // Runtime
   // at::List<at::Tensor> a_list = {
