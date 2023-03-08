@@ -3,5 +3,8 @@
 cmake-build-debug
 build
 *.pt
+*.rb
+compile_commands.json
 
-
+.cache
+*.cu

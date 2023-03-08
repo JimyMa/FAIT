@@ -5,9 +5,9 @@
 namespace c10 {
 namespace tssa {
 
-static auto ns = Symbol::fromQualString("namespaces::tssa");
-static auto Assign = Symbol::fromQualString("tssa::Assign");
-static auto Update = Symbol::fromQualString("tssa::Update");
+static const Symbol ns = Symbol::fromQualString("namespaces::tssa");
+static const Symbol Assign = Symbol::fromQualString("tssa::Assign");
+static const Symbol Update = Symbol::fromQualString("tssa::Update");
 
 }  // namespace tssa
 }  // namespace c10
