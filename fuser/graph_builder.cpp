@@ -46,6 +46,7 @@
 #include "passes/tensor_ssa.h"
 #include "tensorexpr/evaluate_output_shape.h"
 #include "tensorexpr/functor_parallization.h"
+#include "util/logging.h"
 
 using namespace torch::jit::tensorexpr;
 
@@ -96,6 +97,7 @@ GraphBuilder::GraphBuilder(const Node* node)
   try {
     compile();
   } catch (...) {
+    LONG_TAIL_ABORT("Functor Parallization Compile Error!!");
     throw std::runtime_error("Functor Parallization Compile Error!!");
   }
 }
@@ -164,9 +166,9 @@ void GraphBuilder::compile() {
       }
     }
   }
-  
+
   // Input Buffer
-  if (verbose_) std::cout << "Input Buffer begin" << std::endl;
+  LONG_TAIL_LOG_INFO("Input Buffer begin");
   for (auto input_ : graph_->inputs()) {
     // AT_ASSERT(input_->type()->cast<TensorType>(), "Parallel Functor Only
     // Tensor Type are Supported by now");
@@ -202,7 +204,7 @@ void GraphBuilder::compile() {
       }
     }
   }
-  if (verbose_) std::cout << "Input Buffer end!!" << std::endl;
+  LONG_TAIL_LOG_INFO("Input Buffer end!!");
   // Step 2: Bind Node to Compute Op
   for (auto node : graph_->nodes()) {
     auto inputs_expr = get_input_expr(node);
@@ -222,8 +224,8 @@ void GraphBuilder::compile() {
       if (shape_func.count(node->kind()))
         outputShape = shape_func[node->kind()](inputs_expr);
       else {
-        std::cout << "[Warning] no shape function for "
-                  << node->kind().toDisplayString() << "!!!" << std::endl;
+        LONG_TAIL_WARN("[Warning] no shape function for "
+                       << node->kind().toDisplayString() << "!!!" << std::endl);
         outputShape = c10::get_if<BufHandle>(&inputs_expr[0])->dims();
       }
       for (auto dim : outputShape) {
@@ -239,8 +241,8 @@ void GraphBuilder::compile() {
         FunctorShapeMap_[node->output(0)] = outputShape;
       } else {
         if (!custom_lowerings_.count(node->kind())) {
-          std::cout << "No nnc compute function to support node "
-                    << node->kind().toQualString() << std::endl;
+          LONG_TAIL_ABORT("No nnc compute function to support node "
+                          << node->kind().toQualString() << std::endl);
         }
         output_tensor = custom_lowerings_[node->kind()](
             inputs_expr, outputShape, {},
@@ -251,7 +253,7 @@ void GraphBuilder::compile() {
       block->append_stmt(output_tensor.stmt());
     }
   }
-  if (verbose_) std::cout << "Node End!!" << std::endl;
+  LONG_TAIL_LOG_INFO("Node End!!");
   // Step 3: Register Output
   for (auto output : graph_->outputs()) {
     bufOutputs_.insert(bufs_[output]);
@@ -261,18 +263,18 @@ void GraphBuilder::compile() {
   // CodeGen
   LoopNest l(block, bufOutputs_);
   LoopNest::sanitizeNames(l.root_stmt());
-  if (verbose_) {
-    std::cout << "Original Functor: " << std::endl;
-    std::cout << to_string(l.root_stmt()) << std::endl;
+  {
+    LONG_TAIL_LOG_INFO("Original Functor: ");
+    LONG_TAIL_LOG_INFO(to_string(l.root_stmt()));
   }
 
   l.simplify();
   l.inlineIntermediateBufs(true);
 
   auto stmt_ = l.root_stmt();
-  if (verbose_) {
-    std::cout << "after compute inline: " << std::endl;
-    std::cout << to_string(stmt_) << std::endl;
+  {
+    LONG_TAIL_LOG_INFO("after compute inline: ");
+    LONG_TAIL_LOG_INFO(to_string(stmt_));
   }
 
   // Step 2.2: Loop Binding
@@ -307,9 +309,9 @@ void GraphBuilder::compile() {
                      LongImm::make(degree_).node(), stmt_);
   static_to<For>(stmt_)->set_gpu_block_index(1);
 
-  if (verbose_) {
-    std::cout << "after loop binding: " << std::endl;
-    std::cout << to_string(stmt_) << std::endl;
+  {
+    LONG_TAIL_LOG_INFO("after loop binding: ");
+    LONG_TAIL_LOG_INFO(to_string(stmt_));
   }
 
   for (auto input_value_shape : FunctorShapeMap_) {
@@ -374,10 +376,6 @@ void GraphBuilder::compile() {
       stmt_, degree_, new_loop_axis.node(), LoadBufParallelFunctorMap,
       LoadVarParallelFunctorMap);
   l.simplify();
-  if (verbose_) {
-    std::cout << "after input parallization: " << std::endl;
-    std::cout << to_string(stmt_) << std::endl;
-  }
 
   std::unordered_map<const Value*, BufPtr> output_buf;
   for (auto output : graph_->outputs()) {
@@ -407,27 +405,23 @@ void GraphBuilder::compile() {
   stmt_ = FunctorParallization::parallel_functor_store(
       stmt_, degree_, new_loop_axis.node(), StoreBufParallelFunctorMap);
   l.simplify();
-  if (verbose_) {
-    std::cout << "after output parallization: " << std::endl;
-    std::cout << to_string(stmt_) << std::endl;
-  }
 
   stmt_ = FunctorParallization::parallel_functor_shape(
       stmt_, degree_, new_loop_axis.node(), ShapeVarParallelFunctorMap);
   l.simplify();
 
-  if (verbose_) {
-    std::cout << "after output parallization: " << std::endl;
-    std::cout << to_string(stmt_) << std::endl;
+  {
+    LONG_TAIL_LOG_INFO("after parallization: ");
+    LONG_TAIL_LOG_INFO(to_string(stmt_));
   }
 
   l.prepareForCodegen();
   l.simplify();
   auto stmt = l.root_stmt();
   IRSimplifier::simplify(stmt);
-  if (verbose_) {
-    std::cout << "after pre codegen: " << std::endl;
-    std::cout << to_string(stmt_) << std::endl;
+  {
+    LONG_TAIL_LOG_INFO("after pre codegen: ");
+    LONG_TAIL_LOG_INFO(to_string(stmt_));
   }
 
   // input
@@ -464,9 +458,9 @@ void GraphBuilder::compile() {
 
   codegen_ = CreateCodeGen("cuda_codegen", stmt_, ParallelBufferArgs_, device_);
 
-  if (verbose_) {
-    std::cout << "after codegen: " << std::endl;
-    std::cout << codegen_->getCodeText() << std::endl;
+  {
+    LONG_TAIL_LOG_INFO("after codegen: ");
+    LONG_TAIL_LOG_INFO(codegen_->getCodeText());
   }
 }
 
@@ -481,14 +475,11 @@ void GraphBuilder::run(torch::jit::Stack& stack) const {
 std::vector<CodeGen::CallArg> GraphBuilder::prepareRunArgs(
     const at::ArrayRef<IValue>& inputs,
     std::vector<std::vector<at::Tensor>>& outputs) const {
-  if (verbose_) {
-    std::cout << "solve input begin" << std::endl;
-  }
+  LONG_TAIL_LOG_INFO("solve input begin");
   std::vector<CodeGen::CallArg> runArgs;
   // TODO: with is_paralllel_args
   std::vector<CodeGen::CallArg> shape_args;
-  if (verbose_)
-    std::cout << "preparing input and shape call args ... ..." << std::endl;
+  LONG_TAIL_LOG_INFO("preparing input and shape call args ... ...");
 
   std::vector<std::vector<CodeGen::CallArg>> shape_args_degree;
   std::unordered_map<VarPtr, int64_t> dim_map;
@@ -521,7 +512,6 @@ std::vector<CodeGen::CallArg> GraphBuilder::prepareRunArgs(
     } else if (input.isDoubleList()) {
       auto list_input = input.toDoubleList();
       for (int i = 0; i < degree_; i++) {
-        std::cout << "double: " << list_input[i].get().toDouble() << std::endl;
         runArgs.emplace_back(list_input[i].get().toDouble());
       }
     } else if (input.isIntList()) {
@@ -558,7 +548,6 @@ std::vector<CodeGen::CallArg> GraphBuilder::prepareRunArgs(
     } else if (input.isDouble()) {
       auto double_input = input.toDouble();
       for (int i = 0; i < degree_; i++) {
-        std::cout << "double: " << double_input << std::endl;
         runArgs.emplace_back(double_input);
       }
     } else {
@@ -571,15 +560,7 @@ std::vector<CodeGen::CallArg> GraphBuilder::prepareRunArgs(
     }
   }
 
-  if (verbose_) {
-    std::cout << "preparing input and shape call args DONE!!!" << std::endl;
-
-    // std::cout << "dim map: " << std::endl;
-    // for (auto input_dim_message : dim_map) {
-    //   std::cout << to_string(input_dim_message.first) << ", "
-    //             << input_dim_message.second << std::endl;
-    // }
-  }
+  LONG_TAIL_LOG_INFO("preparing input and shape call args DONE!!!");
 
   for (int i = 0; i < graph_->outputs().size(); i++) {
     auto output_value = graph_->outputs()[i];
@@ -601,25 +582,23 @@ std::vector<CodeGen::CallArg> GraphBuilder::prepareRunArgs(
     }
     outputs.push_back(list_output);
   }
-  if (verbose_) std::cout << "solve input done" << std::endl;
+  LONG_TAIL_LOG_INFO("solve input done");
   return runArgs;
 }
 
 void GraphBuilder::runKernel(Stack& stack) const {
-  if (verbose_) std::cout << "run kernel begin: " << std::endl;
+  LONG_TAIL_LOG_INFO("run kernel begin: ");
   auto inputs = last(stack, nInputs_);
   std::vector<std::vector<at::Tensor>> outputs;
-  if (verbose_) std::cout << "Preparing call args ... ... " << std::endl;
+  LONG_TAIL_LOG_INFO("Preparing call args ... ... ");
   std::vector<CodeGen::CallArg> runArgs = prepareRunArgs(inputs, outputs);
-  if (verbose_) {
-    std::cout << "Preparing call args DONE!!! " << std::endl;
-    std::cout << "run kernel call begin ... " << std::endl;
+  {
+    LONG_TAIL_LOG_INFO("Preparing call args DONE!!! ");
+    LONG_TAIL_LOG_INFO("run kernel call begin ... ");
   }
 
   codegen_->call(runArgs);
-  if (verbose_) {
-    std::cout << "run kernel call end ..." << std::endl;
-  }
+  LONG_TAIL_LOG_INFO("run kernel call end ...");
 
   drop(stack, nInputs_);
 
