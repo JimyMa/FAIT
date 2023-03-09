@@ -164,7 +164,7 @@ void GraphBuilder::compile() {
       }
     }
   }
-
+  
   // Input Buffer
   if (verbose_) std::cout << "Input Buffer begin" << std::endl;
   for (auto input_ : graph_->inputs()) {
@@ -481,6 +481,9 @@ void GraphBuilder::run(torch::jit::Stack& stack) const {
 std::vector<CodeGen::CallArg> GraphBuilder::prepareRunArgs(
     const at::ArrayRef<IValue>& inputs,
     std::vector<std::vector<at::Tensor>>& outputs) const {
+  if (verbose_) {
+    std::cout << "solve input begin" << std::endl;
+  }
   std::vector<CodeGen::CallArg> runArgs;
   // TODO: with is_paralllel_args
   std::vector<CodeGen::CallArg> shape_args;
@@ -493,17 +496,12 @@ std::vector<CodeGen::CallArg> GraphBuilder::prepareRunArgs(
     Value* input_value = graph_->inputs()[input_idx];
     auto input = inputs[input_idx];
 
-    if (verbose_) {
-      std::cout << "solve input begin" << std::endl;
-    }
-
     if (input.isTensorList()) {
       auto list_input = input.toTensorList();
       auto functor_shape_expr = FunctorShapeMap_.at(input_value);
 
       for (int i = 0; i < degree_; i++) {
         std::vector<CodeGen::CallArg> shape_args_per_degree;
-        if (verbose_) std::cout << "degree: " << i << std::endl;
         auto tensor_input = list_input[i].get().toTensor();
         runArgs.emplace_back(tensor_input.data_ptr());
         auto tensor_type = refined_types_[input_idx]->cast<TensorType>();
@@ -519,7 +517,6 @@ std::vector<CodeGen::CallArg> GraphBuilder::prepareRunArgs(
         }
 
         shape_args_degree.emplace_back(shape_args_per_degree);
-        if (verbose_) std::cout << "degree: " << i << std::endl;
       }
     } else if (input.isDoubleList()) {
       auto list_input = input.toDoubleList();
@@ -543,7 +540,6 @@ std::vector<CodeGen::CallArg> GraphBuilder::prepareRunArgs(
 
       for (int i = 0; i < degree_; i++) {
         std::vector<CodeGen::CallArg> shape_args_per_degree;
-        if (verbose_) std::cout << "degree: " << i << std::endl;
         runArgs.emplace_back(tensor_input.data_ptr());
         auto tensor_type = refined_types_[input_idx]->cast<TensorType>();
         for (int64_t dim_idx = 0; dim_idx < tensor_type->sizes().size();
@@ -558,7 +554,12 @@ std::vector<CodeGen::CallArg> GraphBuilder::prepareRunArgs(
         }
 
         shape_args_degree.emplace_back(shape_args_per_degree);
-        if (verbose_) std::cout << "degree: " << i << std::endl;
+      }
+    } else if (input.isDouble()) {
+      auto double_input = input.toDouble();
+      for (int i = 0; i < degree_; i++) {
+        std::cout << "double: " << double_input << std::endl;
+        runArgs.emplace_back(double_input);
       }
     } else {
       throw unsupported_dtype();
@@ -573,11 +574,11 @@ std::vector<CodeGen::CallArg> GraphBuilder::prepareRunArgs(
   if (verbose_) {
     std::cout << "preparing input and shape call args DONE!!!" << std::endl;
 
-    std::cout << "dim map: " << std::endl;
-    for (auto input_dim_message : dim_map) {
-      std::cout << to_string(input_dim_message.first) << ", "
-                << input_dim_message.second << std::endl;
-    }
+    // std::cout << "dim map: " << std::endl;
+    // for (auto input_dim_message : dim_map) {
+    //   std::cout << to_string(input_dim_message.first) << ", "
+    //             << input_dim_message.second << std::endl;
+    // }
   }
 
   for (int i = 0; i < graph_->outputs().size(); i++) {
@@ -591,9 +592,6 @@ std::vector<CodeGen::CallArg> GraphBuilder::prepareRunArgs(
       for (auto output_dim_expr : output_dims_expr) {
         auto dim = EvaluateOutputShape::run(output_dim_expr.node(), dim_map, j);
         output_shape.push_back(dim);
-        if (verbose_)
-          std::cout << "output shape dim: " << dim << ", "
-                    << to_string(output_dim_expr.node()) << std::endl;
       }
       auto output_tensor = codegen_->empty_strided(
           output_shape, get_stride_by_shape(output_shape), c10::kFloat,
@@ -616,15 +614,11 @@ void GraphBuilder::runKernel(Stack& stack) const {
   if (verbose_) {
     std::cout << "Preparing call args DONE!!! " << std::endl;
     std::cout << "run kernel call begin ... " << std::endl;
-
-    std::cout << "run Args size: " << runArgs.size() << std::endl;
-    std::cout << "codegen text: " << std::endl
-              << codegen_->getCodeText() << std::endl;
   }
 
   codegen_->call(runArgs);
   if (verbose_) {
-    std::cout << "run kernel call end. " << std::endl;
+    std::cout << "run kernel call end ..." << std::endl;
   }
 
   drop(stack, nInputs_);

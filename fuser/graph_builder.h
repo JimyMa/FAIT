@@ -75,7 +75,7 @@ class GraphBuilder {
     return result;
   }
 
-  bool verbose_ = false;
+  bool verbose_ = true;
   bool is_parallel_map_ = true;
 
   int64_t degree_ = 1;

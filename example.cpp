@@ -52,8 +52,13 @@ int main(int argc, const char *argv[]) {
   Freeze(&mod);
   auto graph = mod.get_method("forward").graph();
   auto origin_graph = graph->copy();
-  std::vector<TypePtr> inputTypes{
-      TensorType::createContiguous(c10::kFloat, c10::kCUDA, {1, 85, 1, 1})};
+  // std::vector<TypePtr> inputTypes{
+  //     TensorType::createContiguous(c10::kFloat, c10::kCUDA, {800, 1333, 3})};
+  std::vector<TypePtr> inputTypes{TupleType::create({
+      TensorType::createContiguous(c10::kFloat, c10::kCUDA, {1, 85, 10, 10}),
+      TensorType::createContiguous(c10::kFloat, c10::kCUDA, {1, 85, 20, 20}),
+      TensorType::createContiguous(c10::kFloat, c10::kCUDA, {1, 85, 40, 40}),
+  })};
   ValueTypeMap refinedTypes;
   try {
     RefineInputTypes(graph, inputTypes, refinedTypes);
@@ -85,23 +90,27 @@ int main(int argc, const char *argv[]) {
     std::cout << err.what();
     dumpGraphToFile(graph, "error.rb");
   }
-  // Runtime
-  // at::List<at::Tensor> a_list = {
-  //     at::ones({1, 85, 1, 1}).to(at::kFloat).cuda() * 0,
-  //     at::ones({1, 85, 20, 20}).to(at::kFloat).cuda() * 1,
-  //     at::ones({1, 85, 40, 40}).to(at::kFloat).cuda() * 2};
-  // at::List<double> b_list = {2.0, 3, 4};
-  at::Tensor a = at::ones({1, 85, 1, 1}).to(at::kFloat).cuda() * 2;
-  Code code(graph, "");
-  Stack input = {"", a};
-  torch::jit::InterpreterState(code).run(input);
-  auto output_tss_parallel = input[0].toTensor();
 
-  GraphFunction origin_function("simple_simple_loop", origin_graph, nullptr);
-  input = {"", a};
+  // Runtime
+  at::List<at::Tensor> a_list = {
+      at::ones({1, 85, 10, 10}).to(at::kFloat).cuda() * 0,
+      at::ones({1, 85, 20, 20}).to(at::kFloat).cuda() * 1,
+      at::ones({1, 85, 40, 40}).to(at::kFloat).cuda() * 2};
+  at::List<double> b_list = {2.0, 3, 4};
+  at::Tensor a = at::ones({800, 1333, 3}).to(at::kFloat).cuda() * 2;
+  Code code(graph, "");
+  // Stack input = {"", a};
+  Stack input = {"", a_list};
+
+  torch::jit::InterpreterState(code).run(input);
+  auto output_tss_parallel = input[0].toTensorList();
+
+  GraphFunction origin_function("normalize", origin_graph, nullptr);
+  input = {"", a_list};
   origin_function.run(input);
-  auto output_origin = input[0].toTensor();
-  std::cout << output_tss_parallel << std::endl;
+  auto output_origin = input[0].toTensorList();
+  // std::cout << output_tss_parallel << std::endl;
   std::cout << "Checking Pass: "
-            << at::allclose(output_tss_parallel, output_origin) << std::endl;
+            << at::allclose(output_tss_parallel[0], output_origin[0])
+            << std::endl;
 }

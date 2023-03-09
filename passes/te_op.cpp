@@ -75,7 +75,7 @@ Node* GetParallelledFunctorByParallelMap(
 
   std::vector<int64_t> is_parallelled_args;
 
-  for (int i = fusion_group->inputs().size() - 1; i >= 0; i--) {
+  for (int i = fusion_group->inputs().size() - 1; i > 0; i--) {
     auto input_ = fusion_group->input(i);
     if (!parallelled_args.count(input_)) {
       functor_op->insertInput(i, input_);
@@ -87,7 +87,8 @@ Node* GetParallelledFunctorByParallelMap(
   std::reverse(is_parallelled_args.begin(), is_parallelled_args.end());
   functor_op->is_(c10::tssa::is_parallelled_args, is_parallelled_args);
 
-  for (auto input_ : fusion_group->blocks()[0]->inputs()) {
+  for (int i = 1; i < fusion_group->blocks()[0]->inputs().size(); i++) {
+    auto input_ = fusion_group->blocks()[0]->inputs()[i];
     auto subgraph_input = subgraph->addInput();
     subgraph_input->copyMetadata(input_);
     values_map[input_] = subgraph_input;
