@@ -46,6 +46,7 @@
 #include "passes/tensor_ssa.h"
 #include "tensorexpr/evaluate_output_shape.h"
 #include "tensorexpr/functor_parallization.h"
+#include "tensorexpr/parallel_for_equal_substitution.h"
 #include "util/logging.h"
 
 using namespace torch::jit::tensorexpr;
@@ -409,9 +410,15 @@ void GraphBuilder::compile() {
   stmt_ = FunctorParallization::parallel_functor_shape(
       stmt_, degree_, new_loop_axis.node(), ShapeVarParallelFunctorMap);
   l.simplify();
-
   {
     LONG_TAIL_LOG_INFO("after parallization: ");
+    LONG_TAIL_LOG_INFO(to_string(stmt_));
+  }
+
+  ParallelForEqualSubstitution::run(stmt_);
+  l.simplify();
+  {
+    LONG_TAIL_LOG_INFO("after parallel for equal substitution: ");
     LONG_TAIL_LOG_INFO(to_string(stmt_));
   }
 
