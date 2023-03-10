@@ -12,8 +12,10 @@
 #include <torch/csrc/jit/ir/ir.h>
 #include <torch/csrc/jit/runtime/interpreter.h>
 #include <torch/csrc/jit/serialization/import.h>
+#include <torch/serialize/tensor.h>
 #include <torchvision/vision.h>
 
+#include "fuser/tssa_set_ops.h"
 #include "passes/canonicalize.h"
 #include "passes/common_passes.h"
 #include "passes/freeze_module.h"

@@ -185,7 +185,7 @@ void GraphBuilder::compile() {
         break;
       }
       case TypeKind::FloatType: {
-        VarHandle v(set_hash_name("InputVar"), kDouble);
+        VarHandle v(set_hash_name("InputVar"), kFloat);
         vars_[input_] = v.node();
         break;
       }
@@ -217,10 +217,6 @@ void GraphBuilder::compile() {
       // supported by now");
     } else {
       Tensor output_tensor(nullptr, nullptr);
-      NNCLoweringFunction lowering;
-      if (node->maybeSchema()) {
-        lowering = getStandardLoweringFor(c10::toString(node->schema()));
-      }
       std::vector<ExprHandle> outputShape;
       if (shape_func.count(node->kind()))
         outputShape = shape_func[node->kind()](inputs_expr);
@@ -229,9 +225,11 @@ void GraphBuilder::compile() {
                        << node->kind().toDisplayString() << "!!!" << std::endl);
         outputShape = c10::get_if<BufHandle>(&inputs_expr[0])->dims();
       }
-      for (auto dim : outputShape) {
-      }
 
+      NNCLoweringFunction lowering;
+      if (node->maybeSchema()) {
+        lowering = getStandardLoweringFor(c10::toString(node->schema()));
+      }
       if (lowering) {
         output_tensor = lowering(
             inputs_expr, outputShape,

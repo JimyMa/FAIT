@@ -19,6 +19,16 @@ Node *rewriteArange(REWRITE_PARAMS) {
   return replace(node, newNode);
 }
 
+Node *rewriteMaxOther(REWRITE_PARAMS) {
+  node->replaceWithNewSymbol(aten::maximum);
+  return nullptr;
+}
+
+Node *rewriteMinOther(REWRITE_PARAMS) {
+  node->replaceWithNewSymbol(aten::minimum);
+  return nullptr;
+}
+
 Node *rewriteNew(REWRITE_PARAMS) {
   // Convert `aten::new_xxxs` to `aten::xxxs`
   auto self = node->input(0), size = node->input(1), dtype = node->input(2),
@@ -57,20 +67,28 @@ Node *rewriteSlice(REWRITE_PARAMS) {
   return nullptr;
 }
 
+Node *rewriteView(REWRITE_PARAMS) {
+  node->replaceWithNewSymbol(aten::reshape);
+  return nullptr;
+}
+
 OperatorMap<Node *(*)(REWRITE_PARAMS)> rewriteFuncs{
     {"aten::arange(Scalar end, *, ScalarType? dtype=None, Layout? layout=None, "
      "Device? device=None, bool? pin_memory=None) -> Tensor",
      rewriteArange},
+    {"aten::max.other(Tensor self, Tensor other) -> Tensor", rewriteMaxOther},
+    {"aten::min.other(Tensor self, Tensor other) -> Tensor", rewriteMinOther},
     {"aten::new_zeros(Tensor self, SymInt[] size, *, ScalarType? dtype=None, "
      "Layout? layout=None, Device? device=None, bool? pin_memory=None) -> "
      "Tensor",
      rewriteNew},
-    {"aten::to.other(Tensor(a) self, Tensor other, bool non_blocking=False, "
-     "bool copy=False, MemoryFormat? memory_format=None) -> Tensor(a)",
-     rewriteToOther},
     {"aten::slice.Tensor(Tensor(a) self, int dim=0, SymInt? start=None, "
      "SymInt? end=None, SymInt step=1) -> Tensor(a)",
      rewriteSlice},
+    {"aten::to.other(Tensor(a) self, Tensor other, bool non_blocking=False, "
+     "bool copy=False, MemoryFormat? memory_format=None) -> Tensor(a)",
+     rewriteToOther},
+    {"aten::view(Tensor(a) self, SymInt[] size) -> Tensor(a)", rewriteView},
 };
 
 void CanonicalizeOps(const std::shared_ptr<Graph> &graph) {

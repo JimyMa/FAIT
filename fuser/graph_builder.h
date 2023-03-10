@@ -13,8 +13,9 @@
 #include <memory>
 #include <string>
 
+#include "fuser/nnc_func.h"
 #include "fuser/solve_update.h"
-#include "fuser/tssa_nnc_func.h"
+#include "fuser/tssa_set_ops.h"
 #include "passes/tensor_ssa.h"
 // #include <torch/csrc/jit/ir/ir.h>
 // #include <torch/csrc/jit/runtime/interpreter.h>

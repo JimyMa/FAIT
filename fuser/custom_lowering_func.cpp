@@ -2,17 +2,11 @@
 // Created by jimyma on 2/10/23.
 //
 
-#include "fuser/tssa_nnc_func.h"
-
-#include <c10/util/variant.h>
-#include <torch/csrc/jit/tensorexpr/exceptions.h>
-#include <torch/csrc/jit/tensorexpr/expr.h>
-#include <torch/csrc/jit/tensorexpr/ir.h>
-#include <torch/csrc/jit/tensorexpr/lowerings.h>
-#include <torch/csrc/jit/tensorexpr/operators/operators.h>
-#include <torch/csrc/jit/tensorexpr/types.h>
-
 #include <utility>
+
+#include "fuser/nnc_func.h"
+#include "tssa_set_ops.h"
+#include "util/types.h"
 
 namespace torch {
 namespace jit {
@@ -48,6 +42,7 @@ Tensor computeSelect(const std::vector<ArgValue>& inputValues,
         return src->load(output_idx);
       });
 }
+
 Tensor computeSelectSet(const std::vector<ArgValue>& inputValues,
                         const std::vector<ExprHandle>& outputShape,
                         const std::vector<ExprHandle>& outputStrides,
@@ -162,96 +157,142 @@ Tensor computeSliceSet(const std::vector<ArgValue>& inputValues,
       });
 }
 
-std::vector<ExprHandle> computePointwiseShape(
-    std::vector<ArgValue> input_args) {
-  return c10::get_if<BufHandle>(&input_args[0])->dims();
+static Tensor computeSelectNew(CUSTOM_LOWERING_PARAMS) {
+  return Compute("select", outShape, [&](const std::vector<VarHandle>& axes) {
+    auto src = GET_BUF_AT(0);
+    auto rank = src.dims().size();
+    auto dim = GET_INT_CONST_AT(1);
+    if (dim < 0) dim += rank;
+    auto idx = GET_INT_SCALAR_EXPR_AT(2);
+    idx = IfThenElse::make(idx >= 0, idx, idx + int64_t(rank));
+
+    std::vector<ExprHandle> output_idx(axes.begin(), axes.end());
+    output_idx.insert(output_idx.begin() + dim, idx);
+
+    return src.load(output_idx);
+  });
 }
 
-std::vector<ExprHandle> computeSelectShape(std::vector<ArgValue> input_args) {
-  // TODO: DIM Must be a constant
-  auto src = c10::get_if<BufHandle>(&input_args[0]);
-  auto dim = *c10::get_if<int64_t>(&input_args[1]);
-  // if (!dim) {
-  //   std::cout << "[ERROR] Must be a constant by now!" << std::endl;
-  //   throw unsupported_dtype("[ERROR] Must be a constant by now!");
-  // }
-  dim = dim == -1 ? src->dims().size() - 1 : dim;
+static Tensor computeSelectSetNew(CUSTOM_LOWERING_PARAMS) {
+  return Compute(
+      "select_set", outShape, [&](const std::vector<VarHandle>& axes) {
+        auto src = GET_BUF_AT(0);
+        auto rank = src.dims().size();
+        auto select_setter = GET_BUF_AT(1);
+        auto dim = GET_INT_CONST_AT(2);
+        if (dim < 0) dim += rank;
+        auto idx = GET_INT_SCALAR_EXPR_AT(3);
+        idx = IfThenElse::make(idx >= 0, idx, idx + int64_t(rank));
 
-  auto result = src->dims();
-  result.erase(result.begin() + dim);
-  return result;
+        std::vector<ExprHandle> setter_idx(axes.begin(), axes.end());
+        setter_idx.erase(setter_idx.begin() + dim);
+        auto cond =
+            CompareSelect::make(axes[dim], idx, select_setter.load(setter_idx),
+                                src.load(axes), CompareSelectOperation::kEQ);
+
+        return cond;
+      });
 }
 
-std::vector<ExprHandle> computeSliceShape(std::vector<ArgValue> input_args) {
-  auto src = c10::get_if<BufHandle>(&input_args[0]);
-  auto dim = *c10::get_if<int64_t>(&input_args[1]);
-  dim = dim == -1 ? src->dims().size() - 1 : dim;
-  int64_t start;
-  if (c10::get_if<ArgNone>(&input_args[2])) {
-    start = 0;
-  } else {
-    start = *c10::get_if<int64_t>(&input_args[2]);
-  }
-  ExprHandle start_expr = LongImm::make(start);
+static Tensor computeSliceNew(CUSTOM_LOWERING_PARAMS) {
+  return Compute("slice", outShape, [&](const std::vector<VarHandle>& axes) {
+    // Source tensor
+    auto src = GET_BUF_AT(0);
+    auto rank = src.dims().size();
+    auto dim = GET_INT_CONST_AT(1);
+    if (dim < 0) dim += rank;
+    auto dimSize = src.dims().at(dim);
 
-  ExprHandle end_expr;
-  if (c10::get_if<ArgNone>(&input_args[3])) {
-    end_expr = src->dim(dim);
-  } else {
-    end_expr = LongImm::make(*c10::get_if<int64_t>(&input_args[3]));
-  }
+    // Start
+    auto startVal = node->input(2);
+    ExprHandle start;
+    if (startVal->type()->kind() == TypeKind::NoneType)
+      start = LongImm::make(0);
+    else
+      start = getScalarExpr<int64_t>(startVal, valueToExpr);
+    start = IfThenElse::make(start >= 0, start, start + dimSize);
+    start = IfThenElse::make(start >= 0, Min::make(start, dimSize, true),
+                             start + dimSize);
 
-  int64_t step = *c10::get_if<int64_t>(&input_args[4]);
-  ExprHandle step_expr = LongImm::make(step);
-  std::vector<ExprHandle> result = src->dims();
-  result[dim] =
-      Min::make((end_expr - start_expr) / step_expr, src->dim(dim), true);
-  return result;
+    // Step
+    int64_t step = GET_INT_CONST_AT(4);
+
+    // Source indices
+    std::vector<ExprHandle> output_idx(axes.begin(), axes.end());
+    output_idx[dim] = start + LongImm::make(step) * output_idx[dim];
+
+    return src.load(output_idx);
+  });
 }
 
-std::vector<ExprHandle> computePermuteShape(std::vector<ArgValue> input_args) {
-  auto src = c10::get_if<BufHandle>(&input_args[0]);
-  auto new_index = *c10::get_if<IntList>(&input_args[1]);
-  auto src_dims = src->dims();
-  std::vector<ExprHandle> result;
-  for (auto idx : new_index) {
-    result.push_back(src_dims[idx]);
-  }
+static Tensor computeSliceSetNew(CUSTOM_LOWERING_PARAMS) {
+  return Compute(
+      "slice_set", outShape, [&](const std::vector<VarHandle>& axes) {
+        // Tensor
+        auto src = GET_BUF_AT(0);
+        auto rank = src.dims().size();
+        auto slice_setter = GET_BUF_AT(1);
+        auto dim = GET_INT_CONST_AT(2);
+        if (dim < 0) dim += rank;
+        auto dimSize = src.dims().at(dim);
 
-  return result;
+        // Start
+        auto startVal = node->input(3);
+        ExprHandle start;
+        if (startVal->type()->kind() == TypeKind::NoneType)
+          start = LongImm::make(0);
+        else
+          start = getScalarExpr<int64_t>(startVal, valueToExpr);
+        start = IfThenElse::make(start >= 0, Min::make(start, dimSize, true),
+                                 start + dimSize);
+
+        // End
+        auto endVal = node->input(4);
+        ExprHandle end;
+        if (endVal->type()->kind() == TypeKind::NoneType)
+          end = dimSize;
+        else
+          end = getScalarExpr<int64_t>(endVal, valueToExpr);
+        end = IfThenElse::make(end >= 0, Min::make(end, dimSize, true),
+                               end + dimSize);
+
+        // Step
+        int64_t step = GET_INT_CONST_AT(5);
+
+        std::vector<ExprHandle> slice_setter_axes;
+        for (int i = 0; i < axes.size(); i++) {
+          slice_setter_axes.push_back(axes[i]);
+        }
+
+        // Index
+        slice_setter_axes[dim] = (axes[dim] - start) / step;
+        auto cond_0 = CompareSelect::make(axes[dim], end, src.load(axes),
+                                          slice_setter.load(slice_setter_axes),
+                                          CompareSelectOperation::kGE);
+        auto cond_1 = CompareSelect::make(axes[dim], start, src.load(axes),
+                                          cond_0, CompareSelectOperation::kLT);
+        auto cond_2 = CompareSelect::make(
+            LongImm::make(0), (axes[dim] - start) % step, src.load(axes),
+            cond_1, CompareSelectOperation::kNE);
+
+        return cond_2;
+      });
 }
 
-std::vector<ExprHandle> computeReshapeShape(std::vector<ArgValue> input_args) {
-  auto src = c10::get_if<BufHandle>(&input_args[0]);
-  auto shape = *c10::get_if<IntList>(&input_args[1]);
-  std::vector<ExprHandle> result;
+static auto _tssaSetOps = registerTssaSetOps();
 
-  for (auto dim : shape) {
-    result.push_back(LongImm::make(dim));
-  }
-
-  auto base = LongImm::make(1);
-  for (auto dim : src->dims()) {
-    base = base * dim;
-  }
-
-  auto result_base = LongImm::make(1);
-  for (int i = 0; i < result.size(); i++) {
-    auto dim = result[i];
-    if (dim.AsNode<LongImm>()->value() != -1) {
-      result_base = ExprHandle(dim) * result_base;
-    }
-  }
-
-  for (int i = 0; i < result.size(); i++) {
-    auto dim = result[i];
-    if (dim.AsNode<LongImm>()->value() == -1) {
-      result[i] = base / result_base;
-    }
-  }
-
-  return result;
-}
+OperatorMap<CustomLoweringFunction> customLoweringFuncs{
+    {"aten::select.int(Tensor(a) self, int dim, int index) -> Tensor(a)",
+     computeSelectNew},
+    {"tssa::SelectSet(Tensor self, Tensor src, int dim, int index) -> Tensor",
+     computeSelectSetNew},
+    {"aten::slice.Tensor(Tensor(a) self, int dim=0, SymInt? start=None, "
+     "SymInt? end=None, SymInt step=1) -> Tensor(a)",
+     computeSliceNew},
+    {"tssa::SliceSet(Tensor self, Tensor src, int dim=0, SymInt? start=None, "
+     "SymInt? end=None, SymInt step=1) -> Tensor",
+     computeSliceSetNew},
+};
 
 }  // namespace tensorexpr
 }  // namespace jit

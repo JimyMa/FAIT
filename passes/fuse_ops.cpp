@@ -13,14 +13,6 @@ namespace torch {
 namespace jit {
 
 OperatorSet fusableOps{
-    "aten::tensor.float(float t, *, ScalarType? dtype=None, Device? "
-    "device=None, bool requires_grad=False) -> Tensor",
-    "aten::tensor.int(int t, *, ScalarType? dtype=None, Device? device=None, "
-    "bool requires_grad=False) -> Tensor",
-    "aten::tensor.bool(bool t, *, ScalarType? dtype=None, Device? device=None, "
-    "bool requires_grad=False) -> Tensor",
-    "aten::tensor(t[] data, *, ScalarType? dtype=None, Device? device=None, "
-    "bool requires_grad=False) -> Tensor",
     "aten::to.device(Tensor(a) self, Device device, ScalarType dtype, bool "
     "non_blocking=False, bool copy=False, MemoryFormat? memory_format=None) -> "
     "Tensor(a)",
@@ -35,9 +27,6 @@ OperatorSet fusableOps{
     "aten::arange.start(Scalar start, Scalar end, *, ScalarType? dtype=None, "
     "Layout? layout=None, Device? device=None, bool? pin_memory=None) -> "
     "Tensor",
-    "aten::arange.start_step(Scalar start, Scalar end, Scalar step=1, *, "
-    "ScalarType? dtype=None, Layout? layout=None, Device? device=None, bool? "
-    "pin_memory=None) -> Tensor",
     "aten::exp(Tensor self) -> Tensor",
     "aten::log(Tensor self) -> Tensor",
     "aten::sin(Tensor self) -> Tensor",
@@ -74,7 +63,6 @@ OperatorSet fusableOps{
     "aten::squeeze.dim(Tensor(a) self, int dim) -> Tensor(a)",
     "aten::unsqueeze(Tensor(a) self, int dim) -> Tensor(a)",
     "aten::reshape(Tensor(a) self, SymInt[] shape) -> Tensor(a)",
-    "aten::view(Tensor(a) self, SymInt[] size) -> Tensor(a)",
     "aten::expand(Tensor(a) self, SymInt[] size, *, bool implicit=False) -> "
     "Tensor(a)",
     "aten::expand_as(Tensor(a) self, Tensor other) -> Tensor(a)",
@@ -111,6 +99,10 @@ static std::unordered_map<Symbol, bool (*)(Node *node)> fusabilityCheckers{
        return node->owningBlock() == node->input(0)->node()->owningBlock();
      }},
     {aten::cat,
+     [](Node *node) {
+       return node->input(0)->node()->kind() != prim::ParallelMap;
+     }},
+    {aten::stack,
      [](Node *node) {
        return node->input(0)->node()->kind() != prim::ParallelMap;
      }},

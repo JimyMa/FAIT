@@ -8,6 +8,7 @@
 #include <unordered_set>
 
 #include "passes/tensor_ssa.h"
+#include "tssa_set_ops.h"
 
 namespace torch {
 namespace jit {
@@ -78,6 +79,7 @@ void UpdateSolver::run() {
         clue_value = new_node->output(0);
         clue_value->copyMetadata(new_node->input(0));
         new_node->insertAfter(pre_new_node);
+        TORCH_INTERNAL_ASSERT(new_node->maybeOperator());
         pre_node = wandering_node;
         pre_new_node = new_node;
       }

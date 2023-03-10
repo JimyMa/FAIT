@@ -6,6 +6,9 @@
 
 namespace torch {
 namespace jit {
+
+/* Print to streams */
+
 template <class Stream>
 inline void print(Stream &stream) {}
 
@@ -21,6 +24,8 @@ inline Error error(Args &&...args) {
   print(ss, std::forward<Args>(args)...);
   return Error(ss.str(), c10::get_backtrace(1));
 }
+
+/* Optional */
 
 inline bool anyIsNone() { return false; }
 
