@@ -222,7 +222,7 @@ void GraphBuilder::compile() {
         outputShape = shape_func[node->kind()](inputs_expr);
       else {
         LONG_TAIL_WARN("[Warning] no shape function for "
-                       << node->kind().toDisplayString() << "!!!" << std::endl);
+                       << node->kind().toDisplayString() << "!!!");
         outputShape = c10::get_if<BufHandle>(&inputs_expr[0])->dims();
       }
 
