@@ -59,8 +59,8 @@ int main(int argc, const char *argv[]) {
   // std::vector<TypePtr> inputTypes{
   //     TensorType::createContiguous(c10::kFloat, c10::kCUDA, {800, 1333, 3})};
   std::vector<TypePtr> inputTypes{TupleType::create({
-      TensorType::createContiguous(c10::kFloat, c10::kCUDA, {1, 255, 40, 40}),
-      TensorType::createContiguous(c10::kFloat, c10::kCUDA, {1, 255, 40, 40}),
+      TensorType::createContiguous(c10::kFloat, c10::kCUDA, {1, 255, 10, 10}),
+      TensorType::createContiguous(c10::kFloat, c10::kCUDA, {1, 255, 20, 20}),
       TensorType::createContiguous(c10::kFloat, c10::kCUDA, {1, 255, 40, 40}),
   })};
   ValueTypeMap refinedTypes;
@@ -97,8 +97,8 @@ int main(int argc, const char *argv[]) {
 
   // Runtime
   at::List<at::Tensor> a_list = {
-      at::ones({1, 255, 40, 40}).to(at::kFloat).cuda() * 0,
-      at::ones({1, 255, 40, 40}).to(at::kFloat).cuda() * 1,
+      at::ones({1, 255, 10, 10}).to(at::kFloat).cuda() * 0,
+      at::ones({1, 255, 20, 20}).to(at::kFloat).cuda() * 1,
       at::ones({1, 255, 40, 40}).to(at::kFloat).cuda() * 2};
   Code code(graph, "");
   Stack input = {"", a_list};
