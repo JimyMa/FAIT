@@ -19,14 +19,8 @@ OperatorSet fusableOps{
     "aten::to.device(Tensor(a) self, Device device, ScalarType dtype, bool "
     "non_blocking=False, bool copy=False, MemoryFormat? memory_format=None) -> "
     "Tensor(a)",
-    "aten::to.dtype(Tensor(a) self, ScalarType dtype, bool non_blocking=False, "
-    "bool copy=False, MemoryFormat? memory_format=None) -> Tensor(a)",
-    "aten::to.other(Tensor(a) self, Tensor other, bool non_blocking=False, "
-    "bool copy=False, MemoryFormat? memory_format=None) -> Tensor(a)",
     "aten::zeros(SymInt[] size, *, ScalarType? dtype=None, Layout? "
     "layout=None, Device? device=None, bool? pin_memory=None) -> Tensor",
-    "aten::arange(Scalar end, *, ScalarType? dtype=None, Layout? layout=None, "
-    "Device? device=None, bool? pin_memory=None) -> Tensor",
     "aten::arange.start(Scalar start, Scalar end, *, ScalarType? dtype=None, "
     "Layout? layout=None, Device? device=None, bool? pin_memory=None) -> "
     "Tensor",
@@ -195,8 +189,8 @@ static void findGroupInOutValues(Node *head, Node *tail,
   }
 }
 
-static Node *commitFusion(Node *head, Node *tail, Graph *graph,
-                          ValueTypeMap &refinedTypes) {
+Node *commitFusion(Node *head, Node *tail, Graph *graph,
+                   ValueTypeMap &refinedTypes) {
   // Collect input and output values from the nodes in the group
   std::vector<Value *> inputs, outputs;
   findGroupInOutValues(head, tail, inputs, outputs);
