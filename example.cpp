@@ -23,7 +23,6 @@
 #include "passes/fuse_ops.h"
 #include "passes/parallelize_loops.h"
 #include "passes/refine_types.h"
-#include "passes/te_fused_op.h"
 #include "passes/te_op.h"
 #include "passes/tensor_ssa.h"
 #include "passes/validate_graph.h"

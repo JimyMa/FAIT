@@ -11,7 +11,7 @@
 #include <nlohmann/json.hpp>
 
 #include "passes/fuse_ops.h"
-#include "passes/te_fused_op.h"
+#include "passes/te_op.h"
 #include "util/common.h"
 #include "util/logging.h"
 
@@ -100,6 +100,8 @@ static void createFusedFunctor(const std::shared_ptr<Graph> &graph) {
 
   // Create fusion functor
   FusedOpToParallization(graph, refinedTypes);
+
+  MapFunctorToParallization(graph, refinedTypes);
 }
 
 static auto rng = at::make_generator<at::CUDAGeneratorImpl>();

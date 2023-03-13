@@ -24,9 +24,6 @@ file(GLOB NNC_EXAMPLE ${PROJECT_SOURCE_DIR}/nnc_example.cpp)
 file(GLOB NNC_EXAMPLE_DYN_SHAPE ${PROJECT_SOURCE_DIR}/nnc_example_dyn_shape.cpp)
 file(GLOB SIMPLE_LOOP_NNC ${PROJECT_SOURCE_DIR}/simple_loop_nnc.cpp)
 
-
-message(${TORCH_LIBRARIES})
-
 add_library(long-tail ${SOURCES})
 target_link_libraries(long-tail ${TORCH_LIBRARIES} TorchVision::TorchVision)
 
