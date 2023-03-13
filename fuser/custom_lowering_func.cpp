@@ -6,6 +6,7 @@
 
 #include "fuser/nnc_func.h"
 #include "tssa_set_ops.h"
+#include "util/logging.h"
 #include "util/types.h"
 
 namespace torch {
@@ -202,7 +203,6 @@ static Tensor computeSliceNew(CUSTOM_LOWERING_PARAMS) {
     auto dim = GET_INT_CONST_AT(1);
     if (dim < 0) dim += rank;
     auto dimSize = src.dims().at(dim);
-
     // Start
     auto startVal = node->input(2);
     ExprHandle start;
@@ -210,13 +210,13 @@ static Tensor computeSliceNew(CUSTOM_LOWERING_PARAMS) {
       start = LongImm::make(0);
     else
       start = getScalarExpr<int64_t>(startVal, valueToExpr);
-    start = IfThenElse::make(start >= 0, start, start + dimSize);
-    start = IfThenElse::make(start >= 0, Min::make(start, dimSize, true),
-                             start + dimSize);
+    start = IfThenElse::make(start >= LongImm::make(0), start, start + dimSize);
+    // start = IfThenElse::make(start >= LongImm::make(0),
+    //                          Min::make(start, dimSize, true), start +
+    //                          dimSize);
 
     // Step
     int64_t step = GET_INT_CONST_AT(4);
-
     // Source indices
     std::vector<ExprHandle> output_idx(axes.begin(), axes.end());
     output_idx[dim] = start + LongImm::make(step) * output_idx[dim];
@@ -243,8 +243,9 @@ static Tensor computeSliceSetNew(CUSTOM_LOWERING_PARAMS) {
           start = LongImm::make(0);
         else
           start = getScalarExpr<int64_t>(startVal, valueToExpr);
-        start = IfThenElse::make(start >= 0, Min::make(start, dimSize, true),
-                                 start + dimSize);
+        start =
+            IfThenElse::make(start >= int64_t(0),
+                             Min::make(start, dimSize, true), start + dimSize);
 
         // End
         auto endVal = node->input(4);
@@ -253,8 +254,8 @@ static Tensor computeSliceSetNew(CUSTOM_LOWERING_PARAMS) {
           end = dimSize;
         else
           end = getScalarExpr<int64_t>(endVal, valueToExpr);
-        end = IfThenElse::make(end >= 0, Min::make(end, dimSize, true),
-                               end + dimSize);
+        end = IfThenElse::make(end >= LongImm::make(0),
+                               Min::make(end, dimSize, true), end + dimSize);
 
         // Step
         int64_t step = GET_INT_CONST_AT(5);
@@ -279,6 +280,15 @@ static Tensor computeSliceSetNew(CUSTOM_LOWERING_PARAMS) {
       });
 }
 
+static Tensor computeAssignNew(CUSTOM_LOWERING_PARAMS) {
+  return Compute("assign", outShape, [&](const std::vector<VarHandle>& axes) {
+    // Tensor
+    auto src = GET_BUF_AT(0);
+    auto assigner = GET_BUF_AT(1);
+    return assigner;
+  });
+}
+
 static auto _tssaSetOps = registerTssaSetOps();
 
 OperatorMap<CustomLoweringFunction> customLoweringFuncs{
@@ -292,7 +302,7 @@ OperatorMap<CustomLoweringFunction> customLoweringFuncs{
     {"tssa::SliceSet(Tensor self, Tensor src, int dim=0, SymInt? start=None, "
      "SymInt? end=None, SymInt step=1) -> Tensor",
      computeSliceSetNew},
-};
+    {"tssa::Assign(Tensor self, Tensor src) -> Tensor", computeAssignNew}};
 
 }  // namespace tensorexpr
 }  // namespace jit

@@ -42,6 +42,7 @@
 #include <unordered_map>
 #include <utility>
 
+#include "fuser/codegen.h"
 #include "passes/te_op.h"
 #include "passes/tensor_ssa.h"
 #include "tensorexpr/evaluate_output_shape.h"
@@ -125,9 +126,9 @@ std::vector<ArgValue> GraphBuilder::get_input_expr(Node* node) {
         throw unsupported_dtype();
       }
     } else if (input_->type()->cast<TensorType>())
-      inputs_expr.emplace_back(BufHandle(bufs_[input_]));
+      inputs_expr.emplace_back(BufHandle(exprs_[input_].AsNode<Buf>()));
     else
-      inputs_expr.emplace_back(VarHandle(vars_[input_]));
+      inputs_expr.emplace_back(VarHandle(exprs_[input_].AsNode<Var>()));
   }
   return inputs_expr;
 }
@@ -181,22 +182,22 @@ void GraphBuilder::compile() {
         BufHandle input_buf(
             set_hash_name("InputBuf"), FunctorShapeMap_[input_],
             ToDtype(input_->type()->cast<TensorType>()->scalarType().value()));
-        bufs_[input_] = input_buf.node();
+        exprs_[input_] = ExprHandle(input_buf.node());
         break;
       }
       case TypeKind::FloatType: {
         VarHandle v(set_hash_name("InputVar"), kFloat);
-        vars_[input_] = v.node();
+        exprs_[input_] = ExprHandle(v.node());
         break;
       }
       case TypeKind::BoolType: {
         VarHandle v(set_hash_name("InputVar"), kBool);
-        vars_[input_] = v.node();
+        exprs_[input_] = ExprHandle(v.node());
         break;
       }
       case TypeKind::IntType: {
         VarHandle v(set_hash_name("InputVar"), kLong);
-        vars_[input_] = v.node();
+        exprs_[input_] = ExprHandle(v.node());
         break;
       }
       default: {
@@ -207,12 +208,13 @@ void GraphBuilder::compile() {
   }
   LONG_TAIL_LOG_INFO("Input Buffer end!!");
   // Step 2: Bind Node to Compute Op
+  LONG_TAIL_LOG_INFO("Bind Node to Compute Op Begin");
   for (auto node : graph_->nodes()) {
     auto inputs_expr = get_input_expr(node);
     if (node->kind() == prim::Constant) {
       auto output_value = node->output(0);
       auto const_var = get_const_var_by_value(output_value);
-      vars_[output_value] = const_var.node();
+      exprs_[output_value] = ExprHandle(const_var.node());
       // AT_ASSERT(node->kind() != prim::Constant, "Constant Feature are not
       // supported by now");
     } else {
@@ -226,36 +228,38 @@ void GraphBuilder::compile() {
         outputShape = c10::get_if<BufHandle>(&inputs_expr[0])->dims();
       }
 
+      LONG_TAIL_LOG_INFO("Process Node: " << node->kind().toQualString());
+      LONG_TAIL_LOG_INFO("Begin ...");
       NNCLoweringFunction lowering;
+
       if (node->maybeSchema()) {
         lowering = getStandardLoweringFor(c10::toString(node->schema()));
       }
       if (lowering) {
         output_tensor = lowering(
-            inputs_expr, outputShape,
-            ExprVectorToExprHandleVector(
-                c10::get_if<BufHandle>(&inputs_expr[0])->node()->strides()),
+            inputs_expr, outputShape, get_stride_by_expr_dims(outputShape),
             node->output(0)->type()->cast<TensorType>()->scalarType().value(),
             device_);
         FunctorShapeMap_[node->output(0)] = outputShape;
       } else {
-        if (!custom_lowerings_.count(node->kind())) {
+        if (!customLoweringFuncs.contains(*node->maybeOperator())) {
           LONG_TAIL_ABORT("No nnc compute function to support node "
                           << node->kind().toQualString() << std::endl);
         }
-        output_tensor = custom_lowerings_[node->kind()](
-            inputs_expr, outputShape, {},
-            node->output(0)->type()->cast<TensorType>()->scalarType().value(),
-            device_);
+        output_tensor = (*customLoweringFuncs.find(*node->maybeOperator()))(
+            node, exprs_, outputShape,
+            node->output(0)->type()->cast<TensorType>()->scalarType().value());
       }
-      if (output_tensor.buf()) bufs_[node->output(0)] = output_tensor.buf();
+      if (output_tensor.buf())
+        exprs_[node->output(0)] = ExprHandle(output_tensor.buf());
       block->append_stmt(output_tensor.stmt());
+      LONG_TAIL_LOG_INFO("End ...");
     }
   }
-  LONG_TAIL_LOG_INFO("Node End!!");
+  LONG_TAIL_LOG_INFO("Bind Node to Compute Op Begin");
   // Step 3: Register Output
   for (auto output : graph_->outputs()) {
-    bufOutputs_.insert(bufs_[output]);
+    bufOutputs_.insert(exprs_[output].AsNode<Buf>());
   }
 
   // Step 4: Functor Parallelization
@@ -332,7 +336,7 @@ void GraphBuilder::compile() {
   std::unordered_map<const Value*, BufPtr> input_buf;
   for (auto input : graph_->inputs()) {
     if (input->type()->cast<TensorType>()) {
-      auto functor_buf = bufs_[input];
+      auto functor_buf = exprs_[input].AsNode<Buf>();
       std::vector<BufHandle> par_bufs;
       for (int i = 0; i < degree_; i++) {
         std::vector<ExprHandle> par_dims;
@@ -358,16 +362,16 @@ void GraphBuilder::compile() {
                                  functor_buf->dtype());
         par_bufs.push_back(par_buf);
       }
-      LoadBufParallelFunctorMap[bufs_[input]] = par_bufs;
+      LoadBufParallelFunctorMap[exprs_[input].AsNode<Buf>()] = par_bufs;
     } else {
-      auto functor_var = vars_[input];
+      auto functor_var = exprs_[input].AsNode<Var>();
       std::vector<VarHandle> par_vars;
       for (int i = 0; i < degree_; i++) {
         auto par_var = VarHandle(set_hash_name(functor_var->name_hint()),
                                  functor_var->dtype());
         par_vars.push_back(par_var);
       }
-      LoadVarParallelFunctorMap[vars_[input]] = par_vars;
+      LoadVarParallelFunctorMap[exprs_[input].AsNode<Var>()] = par_vars;
     }
   }
 
@@ -378,7 +382,7 @@ void GraphBuilder::compile() {
 
   std::unordered_map<const Value*, BufPtr> output_buf;
   for (auto output : graph_->outputs()) {
-    auto functor_buf = bufs_[output];
+    auto functor_buf = exprs_[output].AsNode<Buf>();
 
     std::vector<BufHandle> par_bufs;
     for (int i = 0; i < degree_; i++) {
@@ -399,7 +403,7 @@ void GraphBuilder::compile() {
           functor_buf->dtype());
       par_bufs.push_back(par_buf);
     }
-    StoreBufParallelFunctorMap[bufs_[output]] = par_bufs;
+    StoreBufParallelFunctorMap[exprs_[output].AsNode<Buf>()] = par_bufs;
   }
   stmt_ = FunctorParallization::parallel_functor_store(
       stmt_, degree_, new_loop_axis.node(), StoreBufParallelFunctorMap);
@@ -573,8 +577,9 @@ std::vector<CodeGen::CallArg> GraphBuilder::prepareRunArgs(
     for (int j = 0; j < degree_; j++) {
       // bufOutputs_
       std::vector<int64_t> output_shape;
-      auto output_dims_expr =
-          StoreBufParallelFunctorMap.at(bufs_.at(output_value))[j].dims();
+      auto output_dims_expr = StoreBufParallelFunctorMap
+                                  .at(exprs_.at(output_value).AsNode<Buf>())[j]
+                                  .dims();
       for (auto output_dim_expr : output_dims_expr) {
         auto dim = EvaluateOutputShape::run(output_dim_expr.node(), dim_map, j);
         output_shape.push_back(dim);
