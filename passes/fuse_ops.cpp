@@ -2,6 +2,7 @@
 
 #include <torch/csrc/jit/tensorexpr/operators/operators.h>
 
+#include "fuser/tssa_set_ops.h"
 #include "parallelize_loops.h"
 #include "tensor_ssa.h"
 #include "type_utils.h"
@@ -11,6 +12,8 @@
 
 namespace torch {
 namespace jit {
+
+static auto registry = registerTssaSetOps();
 
 OperatorSet fusableOps{
     "aten::to.device(Tensor(a) self, Device device, ScalarType dtype, bool "
@@ -73,10 +76,11 @@ OperatorSet fusableOps{
     "aten::size.int(Tensor self, int dim) -> int",
     "aten::__getitem__.t(t[](a) list, int idx) -> t(*)",
     "prim::TupleUnpack(Any tup) -> ...",
+    "tssa::Assign(Tensor self, Tensor src) -> Tensor",
 };
 
 static std::unordered_set<Symbol> fusableNoOpSymbols{
-    tssa::Assign, tssa::Update, prim::ListConstruct, prim::ListUnpack};
+    tssa::Update, prim::ListConstruct, prim::ListUnpack};
 
 static std::unordered_set<Symbol> workingSymbols{
     // Tensor creation

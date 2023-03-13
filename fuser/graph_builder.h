@@ -85,6 +85,7 @@ class GraphBuilder {
   std::map<Value*, std::vector<ExprHandle>> FunctorShapeMap_;
   std::map<const torch::jit::Value*, BufPtr> bufs_;
   std::map<const torch::jit::Value*, VarPtr> vars_;
+  std::unordered_map<torch::jit::Value*, ExprHandle> exprs_;
 
   // std::vector<CodeGen::BufferArg> FunctorInputBufferArgs_;
   // std::vector<CodeGen::BufferArg> FunctorInputShapeArgs_;
