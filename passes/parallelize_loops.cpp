@@ -369,7 +369,7 @@ void CanonicalizeFusableMaps(const std::shared_ptr<Graph> &graph) {
     auto index = mapBlock->inputs().front();
     auto groupBlock = group->blocks().front();
     if (index->hasUses()) {
-      TORCH_INTERNAL_ASSERT(index->uses().size() == 1);
+      TORCH_CHECK(index->uses().size() == 1);
       groupArgPerm.push_back(index->uses().front().offset);
     } else {
       group->insertInput(0, index)->setType(IntType::get());
@@ -379,7 +379,7 @@ void CanonicalizeFusableMaps(const std::shared_ptr<Graph> &graph) {
 
     // Reorder loop outputs
     for (auto param : mapBlock->inputs().slice(1)) {
-      TORCH_INTERNAL_ASSERT(index->uses().size() == 1);
+      TORCH_CHECK(index->uses().size() == 1);
       groupArgPerm.push_back(param->uses().front().offset);
     }
     for (auto i :

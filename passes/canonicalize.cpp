@@ -14,7 +14,7 @@ Node *rewriteArange(REWRITE_PARAMS) {
   auto inputs = node->inputs().vec();
   inputs.insert(inputs.begin(), zero);
   auto newNode = graph->create(aten::arange, inputs)->copyMetadata(node);
-  TORCH_INTERNAL_ASSERT(newNode->maybeSchema());
+  TORCH_CHECK(newNode->maybeOperator());
   node->output(0)->replaceAllUsesWith(newNode->output(0));
   return replace(node, newNode);
 }
@@ -42,6 +42,15 @@ Node *rewriteNew(REWRITE_PARAMS) {
   auto newOut =
       graph->insert(symbol, {size}, {{"dtype", dtype}, {"device", device}},
                     node->sourceRange());
+  node->output(0)->replaceAllUsesWith(newOut);
+  return remove(node);
+}
+
+Node *rewriteToDtype(REWRITE_PARAMS) {
+  auto self = node->input(0), dtype = node->input(1);
+  auto device = graph->insert(prim::device, {self}, {});
+  auto newOut =
+      graph->insert(aten::to, {self, device, dtype}, {}, node->sourceRange());
   node->output(0)->replaceAllUsesWith(newOut);
   return remove(node);
 }
@@ -85,6 +94,10 @@ OperatorMap<Node *(*)(REWRITE_PARAMS)> rewriteFuncs{
     {"aten::slice.Tensor(Tensor(a) self, int dim=0, SymInt? start=None, "
      "SymInt? end=None, SymInt step=1) -> Tensor(a)",
      rewriteSlice},
+    {"aten::to.dtype(Tensor(a) self, ScalarType dtype, bool "
+     "non_blocking=False, "
+     "bool copy=False, MemoryFormat? memory_format=None) -> Tensor(a)",
+     rewriteToDtype},
     {"aten::to.other(Tensor(a) self, Tensor other, bool non_blocking=False, "
      "bool copy=False, MemoryFormat? memory_format=None) -> Tensor(a)",
      rewriteToOther},

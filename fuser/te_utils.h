@@ -21,7 +21,7 @@ inline ExprHandle getScalarExpr(
 template <class T>
 inline std::vector<ExprHandle> getExprList(
     Value* value, const std::unordered_map<Value*, ExprHandle>& valueToExpr) {
-  TORCH_INTERNAL_ASSERT(value->type()->kind() == TypeKind::ListType);
+  TORCH_CHECK(value->type()->kind() == TypeKind::ListType);
   std::vector<ExprHandle> result;
   auto node = value->node();
   if (node->kind() == prim::Constant) {
@@ -33,7 +33,7 @@ inline std::vector<ExprHandle> getExprList(
     for (auto input : node->inputs())
       result.push_back(getScalarExpr<T>(input, valueToExpr));
   } else {
-    TORCH_INTERNAL_ASSERT(false);
+    TORCH_CHECK(false);
   }
   return result;
 }

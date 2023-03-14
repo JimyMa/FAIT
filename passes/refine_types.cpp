@@ -78,8 +78,8 @@ static void transferRefinedTypesIn(Block *src, Block *dst,
 }
 
 void transferRefinedTypesOf(Node *src, Node *dst, ValueTypeMap &refinedTypes) {
-  TORCH_INTERNAL_ASSERT(src->outputs().size() == dst->outputs().size());
-  TORCH_INTERNAL_ASSERT(src->blocks().size() == dst->blocks().size());
+  TORCH_CHECK(src->outputs().size() == dst->outputs().size());
+  TORCH_CHECK(src->blocks().size() == dst->blocks().size());
   for (auto i : c10::irange(src->outputs().size()))
     transferRefinedType(src->output(i), dst->output(i), refinedTypes);
   for (auto i : c10::irange(src->blocks().size()))
@@ -166,7 +166,7 @@ static void propagateListConstruct(TYPE_PROP_PARAMS) {
 }
 
 static void propagateGetItem(TYPE_PROP_PARAMS) {
-  TORCH_INTERNAL_ASSERT_DEBUG_ONLY(node->maybeSchema());
+  TORCH_CHECK(node->maybeSchema());
   auto list = node->input(0), index = node->input(1);
   if (refinedTypes.count(list) && refinedTypes[list]->castRaw<TupleType>() &&
       index->node()->kind() == prim::Constant) {

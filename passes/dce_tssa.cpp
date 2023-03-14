@@ -143,7 +143,7 @@ class DeadCodeEliminator {
   //
   // Returns true iff this marked something we haven't marked before.
   bool markLoop(Node* node) {
-    TORCH_INTERNAL_ASSERT(node->kind() == prim::Loop);
+    TORCH_CHECK(node->kind() == prim::Loop);
     // Did a single iteration over the loop block mark anything new?
     // If this is false, we've converged.
     bool marked = false;

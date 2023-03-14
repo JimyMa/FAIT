@@ -49,7 +49,7 @@ static Node *rewriteMutating(
           std::string(mutSym.ns().toUnqualString()) + "::" + immutOpName);
       auto opNode = graph->create(immutSym, node->inputs());
       opNode->insertBefore(node);
-      TORCH_INTERNAL_ASSERT(opNode->maybeSchema());
+      TORCH_CHECK(opNode->maybeSchema());
 
       // Create assignment node
       assignNode = createTssaAssign(graph, mutated, opNode->output(0));
@@ -57,7 +57,7 @@ static Node *rewriteMutating(
       break;
     }
   }
-  TORCH_INTERNAL_ASSERT(assignNode);
+  TORCH_CHECK(assignNode);
 
   // Update aliases of the assigned value
   auto afterAssign = assignNode->output(0);

@@ -23,12 +23,12 @@ inline bool isTensor(Value *v) {
 }
 
 inline auto getShape(const TypePtr &tensorTy) {
-  TORCH_INTERNAL_ASSERT(tensorTy->kind() == TypeKind::TensorType);
+  TORCH_CHECK(tensorTy->kind() == TypeKind::TensorType);
   return tensorTy->cast<TensorType>()->sizes().sizes();
 }
 
 inline auto getRank(const TypePtr &tensorTy) {
-  TORCH_INTERNAL_ASSERT(tensorTy->kind() == TypeKind::TensorType);
+  TORCH_CHECK(tensorTy->kind() == TypeKind::TensorType);
   return tensorTy->cast<TensorType>()->dim();
 }
 
@@ -47,7 +47,7 @@ inline c10::optional<size_t> getListLen(Value *list,
 
 inline c10::optional<std::vector<c10::optional<int64_t>>> getIntList(
     Value *value) {
-  TORCH_INTERNAL_ASSERT(*value->type() == *ListType::create(IntType::get()));
+  TORCH_CHECK(*value->type() == *ListType::create(IntType::get()));
   if (isMutated(value)) return c10::nullopt;
   auto node = value->node();
   switch (node->kind()) {
@@ -87,7 +87,7 @@ inline TypePtr getElementType(const TypePtr &type, size_t index) {
       return type->cast<TupleType>()->elements().at(index);
 
     default:
-      TORCH_INTERNAL_ASSERT(false, "Unreachable");
+      TORCH_CHECK(false, "Unreachable");
   }
 
   return nullptr;
@@ -106,7 +106,7 @@ inline TypePtr getUnifiedElementType(const TypePtr &type) {
     }
 
     default:
-      TORCH_INTERNAL_ASSERT(false, "Unreachable");
+      TORCH_CHECK(false, "Unreachable");
   }
 
   return nullptr;
@@ -139,7 +139,7 @@ inline c10::optional<AttrType> accumAttrFromElements(
     }
 
     default:
-      TORCH_INTERNAL_ASSERT(false, "Unreachable");
+      TORCH_CHECK(false, "Unreachable");
   }
   return c10::nullopt;
 }

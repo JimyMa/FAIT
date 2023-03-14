@@ -37,8 +37,8 @@ void rewrite(Block *block, const std::function<Node *(Node *)> &pattern) {
 void cloneNodesToBlock(Node *begin, Node *end, Block *block,
                        std::unordered_map<Value *, Value *> &valueMap,
                        std::unordered_map<Value *, TypePtr> *refinedTypes) {
-  TORCH_INTERNAL_ASSERT_DEBUG_ONLY(begin->owningBlock() == end->owningBlock());
-  TORCH_INTERNAL_ASSERT_DEBUG_ONLY(begin->isBefore(end));
+  TORCH_CHECK(begin->owningBlock() == end->owningBlock());
+  TORCH_CHECK(begin->isBefore(end));
   auto graph = block->owningGraph();
   for (auto iter = graph_node_list_iterator(begin, kNextDirection);
        iter != graph_node_list_iterator(end, kNextDirection); ++iter) {
@@ -59,7 +59,7 @@ void moveNodesToBlock(Node *begin, Node *end, Block *block,
   graph_node_list_iterator iterBegin(end->prev(), kPrevDirection),
       iterEnd(begin->prev(), kPrevDirection);
   for (auto iter = iterBegin; iter != iterEnd; ++iter) {
-    TORCH_INTERNAL_ASSERT_DEBUG_ONLY(!(*iter)->hasUses());
+    TORCH_CHECK(!(*iter)->hasUses());
     iter.destroyCurrent();
   }
   if (refinedTypes) removeDeadRefinedTypes(*refinedTypes, block->owningGraph());

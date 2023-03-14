@@ -153,7 +153,7 @@ static c10::ScalarType inferDtypeTensorOps(INFER_PARAMS) {
     return typeKindsToScalarTypes[kind];
   else if (kind == TypeKind::ListType) {
     auto elemTy = type->cast<ListType>()->getElementType();
-    TORCH_INTERNAL_ASSERT(typeKindsToScalarTypes.count(elemTy->kind()));
+    TORCH_CHECK(typeKindsToScalarTypes.count(elemTy->kind()));
     return typeKindsToScalarTypes[elemTy->kind()];
   } else {
     throw typeError("Cannot infer data type for input %", value->debugName(),
@@ -377,7 +377,7 @@ static c10::SymbolicShape inferShapePermuteOp(INFER_PARAMS) {
   if (!inShape) return {};
   auto dims = getIntList(node->input(1));
   if (!dims) return getRankedShape(inShape->size());
-  TORCH_INTERNAL_ASSERT(inShape->size() == dims->size());
+  TORCH_CHECK(inShape->size() == dims->size());
 
   // Permute dimensions
   ShapeVec outShape;
@@ -505,7 +505,7 @@ static c10::SymbolicShape inferShapeCatOp(INFER_PARAMS) {
       [&](c10::optional<ShapeVec> &&accum,
           c10::optional<ShapeVec> &&newShape) -> c10::optional<ShapeVec> {
         if (!newShape) newShape = defaultShape;
-        TORCH_INTERNAL_ASSERT(accum->size() == newShape->size());
+        TORCH_CHECK(accum->size() == newShape->size());
         for (auto i : c10::irange(accum->size())) {
           const auto &accumDim = accum->at(i), &newDim = newShape->at(i);
           ShapeDim outDim;
@@ -545,7 +545,7 @@ static c10::SymbolicShape inferShapeStackOp(INFER_PARAMS) {
       [&](c10::optional<ShapeVec> &&accum,
           c10::optional<ShapeVec> &&newShape) -> c10::optional<ShapeVec> {
         if (!newShape) newShape = defaultShape;
-        TORCH_INTERNAL_ASSERT(accum->size() == newShape->size());
+        TORCH_CHECK(accum->size() == newShape->size());
         for (auto i : c10::irange(accum->size()))
           accum->at(i) = joinOpt(accum->at(i), newShape->at(i));
         return std::move(accum);
@@ -569,7 +569,7 @@ static c10::SymbolicShape inferShapeIndexOp(INFER_PARAMS) {
   auto selfShape = getShape(node->input(0)->type());
   if (!selfShape) return {};
   // only support advanced indexing with exactly one tensor in `indices`
-  TORCH_INTERNAL_ASSERT(*getListLen(node->input(1), refinedTypes) == 1);
+  TORCH_CHECK(*getListLen(node->input(1), refinedTypes) == 1);
   auto indexTy = getElementType(getRefinedType(node->input(1), refinedTypes), 0)
                      ->cast<TensorType>();
   if (!indexTy->dim()) return {};
@@ -590,7 +590,7 @@ static c10::SymbolicShape inferShapeIndexOp(INFER_PARAMS) {
     } break;
 
     default: {
-      TORCH_INTERNAL_ASSERT(false);
+      TORCH_CHECK(false);
     }
   }
   return *selfShape;

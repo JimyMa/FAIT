@@ -521,7 +521,7 @@ class AttributePropagator {
           auto input = n->inputs()[0];
           TORCH_CHECK(findConstantAttr(input, name, attrModule, graph),
                       "failed to freeze interface attribute '" + name + "'");
-          TORCH_INTERNAL_ASSERT(attrModule.hasattr(name));
+          TORCH_CHECK(attrModule.hasattr(name));
           auto attr = attrModule.attr(name);
           inlineInterfaceCall(n, attr);
           // Reset the GetAttr to concrete module type.
@@ -531,7 +531,7 @@ class AttributePropagator {
           // in reassignInterfaceTypes()
           // See [Note: Inlining interfaces strategy]
           auto path = getModulePath(input, graph);
-          TORCH_INTERNAL_ASSERT(path.has_value());
+          TORCH_CHECK(path.has_value());
           auto path_str = concatName(path->begin(), path->end());
           interfacesToRetype[path_str].insert(name);
         } else if (n->kind() == prim::SetAttr) {
@@ -554,14 +554,14 @@ class AttributePropagator {
           // findConstantAttr in case the base item is an object,
           // instead of a module/interface.
           auto path = getModulePath(input, graph);
-          TORCH_INTERNAL_ASSERT(path.has_value());
+          TORCH_CHECK(path.has_value());
           getModuleFromPath(attrModule, path->begin(), path->end());
 
           const auto& attrType = attrModule.type()->getAttribute(name);
-          TORCH_INTERNAL_ASSERT(!attrType->cast<InterfaceType>(),
-                                "Freezing does not support SetAttr "
-                                "on an interface type. ",
-                                "SetAttr is attempted on '", name, "'");
+          TORCH_CHECK(!attrType->cast<InterfaceType>(),
+                      "Freezing does not support SetAttr "
+                      "on an interface type. ",
+                      "SetAttr is attempted on '", name, "'");
         } else if (n->kind() == prim::fork) {
           applyToForkSubgraph(
               n, graph,
@@ -625,7 +625,7 @@ class AttributePropagator {
                     : "");
             continue;
           }
-          TORCH_INTERNAL_ASSERT(attrModule.hasattr(name));
+          TORCH_CHECK(attrModule.hasattr(name));
           Value* paramConst = nullptr;
           auto iter = attrValues.find(attrModule._ivalue());
           if (iter != attrValues.end()) {
@@ -728,8 +728,8 @@ class AttributePropagator {
       if (node->kind() != aten::wait) {
         continue;
       }
-      TORCH_INTERNAL_ASSERT(node->inputs().size() == 1);
-      TORCH_INTERNAL_ASSERT(node->outputs().size() == 1);
+      TORCH_CHECK(node->inputs().size() == 1);
+      TORCH_CHECK(node->outputs().size() == 1);
       // If input type is not a from aten::fork call then the
       // aten::wait operator can be deleted.
       if (node->input()->type()->kind() != TypeKind::FutureType) {
@@ -785,7 +785,7 @@ class AttributePropagator {
           for (auto& mptr : modules) {
             auto module = Module(mptr);
             if (module.type() == n->inputs()[0]->type()) {
-              TORCH_INTERNAL_ASSERT(module.hasattr(name));
+              TORCH_CHECK(module.hasattr(name));
               auto module = Module(mptr);
               auto attr = module.attr(name);
               // TODO: this could be insertReferencedAttr to be
