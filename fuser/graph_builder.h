@@ -108,13 +108,6 @@ class GraphBuilder {
 
   std::shared_ptr<Graph> graph_;
 
-  std::unordered_map<c10::Symbol, NNCLoweringFunction> custom_lowerings_ = {
-      {c10::tssa::Assign, computeAssign},
-      {c10::aten::select, computeSelect},
-      {c10::aten::slice, computeSlice},
-      {c10::tssa::SliceSet, computeSliceSet},
-      {c10::tssa::SelectSet, computeSelectSet}};
-
   std::unordered_map<c10::Symbol, NNCShapeFunction> shape_func = {
       {c10::aten::add, computePointwiseShape},
       {c10::aten::select, computeSelectShape},

@@ -125,10 +125,11 @@ std::vector<ArgValue> GraphBuilder::get_input_expr(Node* node) {
       } else {
         throw unsupported_dtype();
       }
-    } else if (input_->type()->cast<TensorType>())
+    } else if (input_->type()->cast<TensorType>()) {
       inputs_expr.emplace_back(BufHandle(exprs_[input_].AsNode<Buf>()));
-    else
+    } else {
       inputs_expr.emplace_back(VarHandle(exprs_[input_].AsNode<Var>()));
+    }
   }
   return inputs_expr;
 }
@@ -215,45 +216,54 @@ void GraphBuilder::compile() {
       auto output_value = node->output(0);
       auto const_var = get_const_var_by_value(output_value);
       exprs_[output_value] = ExprHandle(const_var.node());
-      // AT_ASSERT(node->kind() != prim::Constant, "Constant Feature are not
-      // supported by now");
     } else {
+      LONG_TAIL_LOG_INFO("Process Node Shape " << *node->maybeSchema()
+                                               << " Begin ...");
       Tensor output_tensor(nullptr, nullptr);
       std::vector<ExprHandle> outputShape;
-      if (shape_func.count(node->kind()))
-        outputShape = shape_func[node->kind()](inputs_expr);
-      else {
-        LONG_TAIL_WARN("[Warning] no shape function for "
-                       << node->kind().toDisplayString() << "!!!");
-        outputShape = c10::get_if<BufHandle>(&inputs_expr[0])->dims();
-      }
 
-      LONG_TAIL_LOG_INFO("Process Node: " << node->kind().toQualString());
-      LONG_TAIL_LOG_INFO("Begin ...");
-      NNCLoweringFunction lowering;
-
-      if (node->maybeSchema()) {
-        lowering = getStandardLoweringFor(c10::toString(node->schema()));
-      }
-      if (lowering) {
-        output_tensor = lowering(
-            inputs_expr, outputShape, get_stride_by_expr_dims(outputShape),
-            node->output(0)->type()->cast<TensorType>()->scalarType().value(),
-            device_);
-        FunctorShapeMap_[node->output(0)] = outputShape;
+      if (node->isMemberOf(identicalShapeOps)) {
+        outputShape = computeIdenticalShape(node, exprs_);
+      } else if (shapeFuncs.contains(*node->maybeOperator())) {
+        outputShape = (*shapeFuncs.find(*node->maybeOperator()))(node, exprs_);
       } else {
-        if (!customLoweringFuncs.contains(*node->maybeOperator())) {
-          LONG_TAIL_ABORT("No nnc compute function to support node "
-                          << node->kind().toQualString() << std::endl);
-        }
+        LONG_TAIL_ABORT("No nnc shape function to support node "
+                        << *node->maybeSchema() << std::endl);
+      }
+      FunctorShapeMap_[node->output(0)] = outputShape;
+      LONG_TAIL_LOG_INFO("Process Node Shape " << *node->maybeSchema()
+                                               << " End ...");
+
+      LONG_TAIL_LOG_INFO("Process Node Compute Op: " << *node->maybeSchema()
+                                                     << " Begin ...");
+
+      if (customLoweringFuncs.contains(*node->maybeOperator())) {
         output_tensor = (*customLoweringFuncs.find(*node->maybeOperator()))(
             node, exprs_, outputShape,
             node->output(0)->type()->cast<TensorType>()->scalarType().value());
+      } else if (node->maybeSchema()) {
+        NNCLoweringFunction lowering;
+        lowering = getStandardLoweringFor(c10::toString(node->schema()));
+        if (lowering) {
+          get_stride_by_expr_dims(outputShape);
+
+          output_tensor = lowering(
+              inputs_expr, outputShape, get_stride_by_expr_dims(outputShape),
+              node->output(0)->type()->cast<TensorType>()->scalarType().value(),
+              device_);
+        } else {
+          node->maybeSchema()->dump();
+          LONG_TAIL_ABORT("Cannot find compute op for "
+                          << *node->maybeSchema());
+        }
+      } else {
+        LONG_TAIL_ABORT("Cannot find compute op for " << *node->maybeSchema());
       }
       if (output_tensor.buf())
         exprs_[node->output(0)] = ExprHandle(output_tensor.buf());
       block->append_stmt(output_tensor.stmt());
-      LONG_TAIL_LOG_INFO("End ...");
+      LONG_TAIL_LOG_INFO("Process Node Compute Op: " << *node->maybeSchema()
+                                                     << " End ...");
     }
   }
   LONG_TAIL_LOG_INFO("Bind Node to Compute Op Begin");

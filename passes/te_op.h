@@ -24,9 +24,14 @@ static auto is_parallel_map = Symbol::fromQualString("attr::is_parallel_map");
 
 namespace torch {
 namespace jit {
+
 void MapFunctorToParallization(
     const std::shared_ptr<Graph> &graph,
     std::unordered_map<Value *, TypePtr> &refine_types);
+
+void FusedOpToParallization(const std::shared_ptr<Graph> &graph,
+                            std::unordered_map<Value *, TypePtr> &refine_types);
+
 }  // namespace jit
 }  // namespace torch
 

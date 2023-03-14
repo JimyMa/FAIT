@@ -11,7 +11,7 @@
 #include <nlohmann/json.hpp>
 
 #include "passes/fuse_ops.h"
-#include "passes/te_fused_op.h"
+#include "passes/te_op.h"
 #include "util/common.h"
 #include "util/logging.h"
 
@@ -82,6 +82,10 @@ static Value *createNode(const json &inputCase, const FunctionSchema &schema,
 }
 
 static void createFusedFunctor(const std::shared_ptr<Graph> &graph) {
+  // Infer dtype and device
+  ValueTypeMap refinedTypes;
+  InferDtypeAndDevice(graph, refinedTypes);
+
   // Include `ListConstruct` in the graph
   auto tail = graph->return_node(), head = tail->prev();
   for (auto node = head->prev(); node != graph->param_node();
@@ -95,11 +99,11 @@ static void createFusedFunctor(const std::shared_ptr<Graph> &graph) {
   }
 
   // Create fusion group
-  std::unordered_map<Value *, TypePtr> refinedTypes;
   commitFusion(head, tail, graph.get(), refinedTypes);
 
   // Create fusion functor
   FusedOpToParallization(graph, refinedTypes);
+  MapFunctorToParallization(graph, refinedTypes);
 }
 
 static auto rng = at::make_generator<at::CUDAGeneratorImpl>();
@@ -151,8 +155,8 @@ static void runCase(const json &inputCase, const FunctionSchema &schema) {
     Code code(compiledGraph, "test");
     auto stack = inputs;
     InterpreterState(code).run(stack);
+    compileOut = stack.front().toTensor();
   }
-
   // Compare result
   TORCH_CHECK(at::allclose(refOut, compileOut, 1e-3, 1e-5));
 }
