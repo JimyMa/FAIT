@@ -2,6 +2,7 @@
 
 #include <torch/csrc/jit/tensorexpr/operators/operators.h>
 
+#include "fuser/nnc_func.h"
 #include "fuser/tssa_set_ops.h"
 #include "parallelize_loops.h"
 #include "tensor_ssa.h"
@@ -16,6 +17,12 @@ namespace jit {
 static auto registry = registerTssaSetOps();
 
 OperatorSet fusableOps{
+    "aten::tensor.bool(bool t, *, ScalarType? dtype=None, Device? device=None, "
+    "bool requires_grad=False) -> Tensor",
+    "aten::tensor.float(float t, *, ScalarType? dtype=None, Device? "
+    "device=None, bool requires_grad=False) -> Tensor",
+    "aten::tensor.int(int t, *, ScalarType? dtype=None, Device? device=None, "
+    "bool requires_grad=False) -> Tensor",
     "aten::to.device(Tensor(a) self, Device device, ScalarType dtype, bool "
     "non_blocking=False, bool copy=False, MemoryFormat? memory_format=None) -> "
     "Tensor(a)",
@@ -25,10 +32,6 @@ OperatorSet fusableOps{
     "Layout? layout=None, Device? device=None, bool? pin_memory=None) -> "
     "Tensor",
     "aten::exp(Tensor self) -> Tensor",
-    "aten::log(Tensor self) -> Tensor",
-    "aten::sin(Tensor self) -> Tensor",
-    "aten::cos(Tensor self) -> Tensor",
-    "aten::sqrt(Tensor self) -> Tensor",
     "aten::sigmoid(Tensor self) -> Tensor",
     "aten::clamp(Tensor self, Scalar? min=None, Scalar? max=None) -> Tensor",
     "aten::clamp.Tensor(Tensor self, Tensor? min=None, Tensor? max=None) -> "
@@ -299,19 +302,23 @@ void FuseOps(const std::shared_ptr<Graph> &graph, ValueTypeMap &refinedTypes) {
 }
 
 void printOpsInFusionGroups(const std::shared_ptr<Graph> &graph) {
-  std::set<std::string> schemas;
+  std::unordered_set<std::string> schemas;
   traversePreOrder(graph->block(), [&](Node *node) {
     auto parent = node->owningBlock()->owningNode();
     if (!parent || parent->kind() != prim::FusionGroup) return true;
     if (!node->maybeSchema()) return true;
     std::stringstream ss;
     ss << node->schema();
+    auto schema = ss.str();
+    if (schemas.count(schema)) return true;
+    auto hasShapeFunc = node->isMemberOf(tensorexpr::identicalShapeOps) ||
+                        node->isMemberOf(tensorexpr::shapeFuncs);
+    auto hasComputeFunc = node->isMemberOf(tensorexpr::customLoweringFuncs) ||
+                          bool(tensorexpr::getStandardLoweringFor(schema));
+    print(std::cout, schema, ' ', hasShapeFunc, ' ', hasComputeFunc, '\n');
     schemas.insert(ss.str());
     return true;
   });
-  for (auto str : schemas)
-    print(std::cout, str, ' ', bool(tensorexpr::getStandardLoweringFor(str)),
-          '\n');
 }
 
 }  // namespace jit

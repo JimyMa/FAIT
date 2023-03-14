@@ -13,7 +13,8 @@ inline ExprHandle getScalarExpr(
     Value* value, const std::unordered_map<Value*, ExprHandle>& valueToExpr) {
   auto cnst = constant_as<T>(value);
   if (cnst)
-    return ExprHandle(getImmediateByType<T>(GetScalarType<T>::result, *cnst));
+    return ExprHandle(
+        getImmediateByType<T>(c10::CppTypeToScalarType<T>::value, *cnst));
   else
     return valueToExpr.at(value);
 }
@@ -27,8 +28,8 @@ inline std::vector<ExprHandle> getExprList(
   if (node->kind() == prim::Constant) {
     auto cnst = toIValue(value);
     for (auto& elem : cnst->toListRef())
-      result.emplace_back(
-          getImmediateByType<T>(GetScalarType<T>::result, elem.to<T>()));
+      result.emplace_back(getImmediateByType<T>(
+          c10::CppTypeToScalarType<T>::value, elem.to<T>()));
   } else if (node->kind() == prim::ListConstruct) {
     for (auto input : node->inputs())
       result.push_back(getScalarExpr<T>(input, valueToExpr));

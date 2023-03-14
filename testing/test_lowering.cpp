@@ -14,6 +14,7 @@
 #include "passes/te_op.h"
 #include "util/common.h"
 #include "util/logging.h"
+#include "util/types.h"
 
 using json = nlohmann::json;
 using namespace torch::jit;
@@ -34,8 +35,9 @@ static Value *createValue(TypePtr type, const json &input, Graph *graph) {
 
     case TypeKind::TensorType: {
       auto shape = input.at("shape").get<std::vector<int64_t>>();
+      auto dtype = strToDtype.at(input.at("dtype").get<std::string>());
       return graph->addInput()->setType(
-          TensorType::createContiguous(c10::kFloat, c10::kCUDA, shape));
+          TensorType::createContiguous(dtype, c10::kCUDA, shape));
     } break;
 
     case TypeKind::ListType: {
@@ -46,6 +48,14 @@ static Value *createValue(TypePtr type, const json &input, Graph *graph) {
         elemValues.push_back(createValue(elemType, elem, graph));
       auto list = graph->appendNode(graph->createList(elemType, elemValues));
       return list->output(0);
+    } break;
+
+    case TypeKind::OptionalType: {
+      if (input.is_null())
+        return graph->insertConstant(IValue());
+      else
+        return createValue(type->cast<OptionalType>()->getElementType(), input,
+                           graph);
     } break;
 
     default: {
@@ -141,9 +151,9 @@ static void runCase(const json &inputCase, const FunctionSchema &schema) {
   // Run reference graph
   at::Tensor refOut;
   {
+    Code code(refGraph, "test");
     auto stack = inputs;
-    GraphFunction func("test", refGraph, nullptr);
-    func.run(stack);
+    InterpreterState(code).run(stack);
     refOut = stack.front().toTensor();
   }
 
@@ -157,6 +167,7 @@ static void runCase(const json &inputCase, const FunctionSchema &schema) {
   }
 
   // Compare result
+  print(std::cout, refOut, compileOut);
   TORCH_CHECK(at::allclose(refOut, compileOut, 1e-3, 1e-5));
 }
 
@@ -168,7 +179,7 @@ static void runOpSuite(const json &opSuite) {
   TORCH_CHECK(op, "Operator not found for ", opName);
 
   // Run each test case
-  auto inputCases = opSuite.at("inputs").get<std::vector<json>>();
+  auto inputCases = opSuite.at("cases").get<std::vector<json>>();
   for (auto &testCase : inputCases) runCase(testCase, schema);
 }
 

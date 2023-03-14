@@ -8,8 +8,6 @@
 #include <torch/csrc/jit/tensorexpr/expr.h>
 #include <torch/csrc/jit/tensorexpr/lowerings.h>
 
-#include "te_utils.h"
-
 namespace torch {
 namespace jit {
 namespace tensorexpr {
@@ -29,7 +27,7 @@ extern OperatorSet identicalShapeOps;
 extern OperatorMap<NNCShapeFunction> shapeFuncs;
 
 inline ShapeVec computeIdenticalShape(SHAPE_FUNC_PARAMS) {
-  return GET_BUF_AT(0).dims();
+  return BufHandle(valueToExpr.at(node->input(0)).AsNode<Buf>()).dims();
 }
 
 extern OperatorMap<CustomLoweringFunction> customLoweringFuncs;

@@ -214,6 +214,15 @@ void GraphBuilder::compile() {
         exprs_[output_value] = ExprHandle(const_var.node());
       } break;
 
+      case aten::size: {
+        TORCH_CHECK(node->inputs().size() == 2);
+        BufHandle self(exprs_.at(node->input(0)).AsNode<Buf>());
+        auto rank = self.dims().size();
+        auto dim = *constant_as<int64_t>(node->input(1));
+        if (dim < 0) dim += rank;
+        exprs_[node->output(0)] = self.dim(dim);
+      } break;
+
       case prim::ListConstruct:
         break;
 

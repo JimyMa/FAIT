@@ -1,20 +1,34 @@
 {
+  "add": {
+    "schema": "aten::add.Tensor(Tensor self, Tensor other, *, Scalar alpha=1) -> Tensor",
+    "cases": [
+      [ [ { "shape": [ 2, 1, 4 ], "dtype": "Float" }, { "shape": [ 3, 1 ], "dtype": "Float" } ], { } ]
+    ]
+  },
   "select": {
     "schema": "aten::select.int(Tensor(a) self, int dim, int index) -> Tensor(a)",
-    "inputs": [
-      [ [ { "shape": [ 1, 2, 4 ], "dtype": "float" }, 1, 0 ], { } ]
+    "cases": [
+      [ [ { "shape": [ 1, 2, 4 ], "dtype": "Float" }, -1, -3 ], { } ]
+    ]
+  },
+  "slice": {
+    "schema": "aten::slice.Tensor(Tensor(a) self, int dim=0, SymInt? start=None, SymInt? end=None, SymInt step=1) -> Tensor(a)",
+    "cases": [
+      [ [ { "shape": [ 2, 3, 4 ], "dtype": "Float" }, -2, null, -1, 2 ], { } ],
+      [ [ { "shape": [ 2, 3, 4 ], "dtype": "Float" }, 1, -2, null ], { } ],
+      [ [ { "shape": [ 2, 3, 4 ], "dtype": "Float" }, 1, 5, null ], { } ]
     ]
   },
   "reshape": {
     "schema": "aten::reshape(Tensor(a) self, SymInt[] shape) -> Tensor(a)",
-    "inputs": [
-      [ [ { "shape": [ 3, 2, 4 ], "dtype": "float" }, [ 2, 3, 1, -1 ] ], { } ]
+    "cases": [
+      [ [ { "shape": [ 3, 2, 4 ], "dtype": "Float" }, [ 2, 3, 1, -1 ] ], { } ]
     ]
   },
   "cat": {
     "schema": "aten::cat(Tensor[] tensors, int dim=0) -> Tensor",
-    "inputs": [
-      [ [ [ { "shape": [ 2, 2 ], "dtype": "float" }, { "shape": [ 2, 4 ], "dtype": "float" } ], 1 ], { } ]
+    "cases": [
+      [ [ [ { "shape": [ 2, 2 ], "dtype": "Float" }, { "shape": [ 2, 4 ], "dtype": "Float" } ], 1 ], { } ]
     ]
   }
 }

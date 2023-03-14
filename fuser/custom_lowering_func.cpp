@@ -5,13 +5,34 @@
 #include <utility>
 
 #include "fuser/nnc_func.h"
+#include "te_utils.h"
 #include "tssa_set_ops.h"
 #include "util/logging.h"
-#include "util/types.h"
 
 namespace torch {
 namespace jit {
 namespace tensorexpr {
+
+static ExprHandle loadBcast(const BufHandle& srcBuf, const ShapeVec& dstShape,
+                            const ParameterList& axes) {
+  auto srcRank = srcBuf.dims().size(), dstRank = dstShape.size();
+  std::vector<ExprHandle> loadAxes(axes.begin(), axes.end());
+  loadAxes.erase(loadAxes.begin(), loadAxes.begin() + dstRank - srcRank);
+  for (auto i : c10::irange(srcRank)) {
+    loadAxes[i] =
+        IfThenElse::make(srcBuf.dim(i) == int64_t(1), int64_t(0), loadAxes[i]);
+  }
+  return srcBuf.load(loadAxes);
+}
+
+template <class BinExpr>
+static Tensor computeBcast(CUSTOM_LOWERING_PARAMS) {
+  return Compute("bcast", outShape, [&](const ParameterList& axes) {
+    auto lhs = loadBcast(GET_BUF_AT(0), outShape, axes);
+    auto rhs = loadBcast(GET_BUF_AT(1), outShape, axes);
+    return BinExpr::make(lhs, rhs);
+  });
+}
 
 static Tensor computeSelect(CUSTOM_LOWERING_PARAMS) {
   return Compute("select", outShape, [&](const std::vector<VarHandle>& axes) {
@@ -19,8 +40,9 @@ static Tensor computeSelect(CUSTOM_LOWERING_PARAMS) {
     auto rank = src.dims().size();
     auto dim = GET_INT_CONST_AT(1);
     if (dim < 0) dim += rank;
+    auto dimSize = src.dims().at(dim);
     auto idx = GET_INT_SCALAR_EXPR_AT(2);
-    idx = IfThenElse::make(idx >= int64_t(0), idx, idx + int64_t(rank));
+    idx = IfThenElse::make(idx >= int64_t(0), idx, idx + dimSize);
 
     std::vector<ExprHandle> output_idx(axes.begin(), axes.end());
     output_idx.insert(output_idx.begin() + dim, idx);
@@ -37,8 +59,9 @@ static Tensor computeSelectSet(CUSTOM_LOWERING_PARAMS) {
         auto select_setter = GET_BUF_AT(1);
         auto dim = GET_INT_CONST_AT(2);
         if (dim < 0) dim += rank;
+        auto dimSize = src.dims().at(dim);
         auto idx = GET_INT_SCALAR_EXPR_AT(3);
-        idx = IfThenElse::make(idx >= int64_t(0), idx, idx + int64_t(rank));
+        idx = IfThenElse::make(idx >= int64_t(0), idx, idx + dimSize);
 
         std::vector<ExprHandle> setter_idx(axes.begin(), axes.end());
         setter_idx.erase(setter_idx.begin() + dim);
@@ -145,6 +168,9 @@ static Tensor computeAssign(CUSTOM_LOWERING_PARAMS) {
 static auto _tssaSetOps = registerTssaSetOps();
 
 OperatorMap<CustomLoweringFunction> customLoweringFuncs{
+    // {"aten::add.Tensor(Tensor self, Tensor other, *, Scalar alpha=1) ->
+    // Tensor",
+    //  computeBcast<Add>},
     {"aten::select.int(Tensor(a) self, int dim, int index) -> Tensor(a)",
      computeSelect},
     {"tssa::SelectSet(Tensor self, Tensor src, int dim, int index) -> Tensor",

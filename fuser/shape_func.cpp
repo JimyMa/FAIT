@@ -1,9 +1,29 @@
 #include "fuser/nnc_func.h"
+#include "te_utils.h"
 #include "tssa_set_ops.h"
 
 namespace torch {
 namespace jit {
 namespace tensorexpr {
+
+static ShapeVec computeBcastShape(SHAPE_FUNC_PARAMS) {
+  auto lShape = GET_BUF_AT(0).dims(), rShape = GET_BUF_AT(1).dims();
+  int64_t lRank = lShape.size(), rRank = rShape.size();
+  auto outRank = std::max(lRank, rRank);
+  ShapeVec outShape(outRank, int64_t(0));
+  for (auto i : c10::irange(outRank)) {
+    auto lIdx = lRank - 1 - i, rIdx = rRank - 1 - i;
+    ExprHandle outDim;
+    if (lIdx < 0)
+      outDim = rShape.at(rIdx);
+    else if (rIdx < 0)
+      outDim = lShape.at(lIdx);
+    else
+      outDim = Max::make(lShape.at(lIdx), rShape.at(rIdx), true);
+    outShape[outRank - 1 - i] = outDim;
+  }
+  return outShape;
+}
 
 static ShapeVec computeSelectShape(SHAPE_FUNC_PARAMS) {
   auto src = GET_BUF_AT(0);
@@ -96,6 +116,8 @@ static ShapeVec computeReshapeShape(SHAPE_FUNC_PARAMS) {
 static auto _tssaSetOps = registerTssaSetOps();
 
 OperatorMap<NNCShapeFunction> shapeFuncs{
+    {"aten::add.Tensor(Tensor self, Tensor other, *, Scalar alpha=1) -> Tensor",
+     computeBcastShape},
     {"aten::select.int(Tensor(a) self, int dim, int index) -> Tensor(a)",
      computeSelectShape},
     {"aten::slice.Tensor(Tensor(a) self, int dim=0, SymInt? start=None, "
@@ -108,7 +130,20 @@ OperatorMap<NNCShapeFunction> shapeFuncs{
 };
 
 OperatorSet identicalShapeOps{
+    "aten::to.device(Tensor(a) self, Device device, ScalarType dtype, bool "
+    "non_blocking=False, bool copy=False, MemoryFormat? memory_format=None) -> "
+    "Tensor(a)",
     "aten::sigmoid(Tensor self) -> Tensor",
+    "aten::clamp(Tensor self, Scalar? min=None, Scalar? max=None) -> Tensor",
+    "aten::add.Scalar(Tensor self, Scalar other, Scalar alpha=1) -> Tensor",
+    "aten::sub.Scalar(Tensor self, Scalar other, Scalar alpha=1) -> Tensor",
+    "aten::mul.Scalar(Tensor self, Scalar other) -> Tensor",
+    "aten::div.Scalar(Tensor self, Scalar other) -> Tensor",
+    "aten::eq.Scalar(Tensor self, Scalar other) -> Tensor",
+    "aten::ne.Scalar(Tensor self, Scalar other) -> Tensor",
+    "aten::lt.Scalar(Tensor self, Scalar other) -> Tensor",
+    "aten::gt.Scalar(Tensor self, Scalar other) -> Tensor",
+    "aten::ge.Scalar(Tensor self, Scalar other) -> Tensor",
     "tssa::SelectSet(Tensor self, Tensor src, int dim, int index) -> Tensor",
     "tssa::SliceSet(Tensor self, Tensor src, int dim=0, SymInt? start=None, "
     "SymInt? end=None, SymInt step=1) -> Tensor",
