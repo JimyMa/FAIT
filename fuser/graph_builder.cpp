@@ -125,10 +125,11 @@ std::vector<ArgValue> GraphBuilder::get_input_expr(Node* node) {
       } else {
         throw unsupported_dtype();
       }
-    } else if (input_->type()->cast<TensorType>())
+    } else if (input_->type()->cast<TensorType>()) {
       inputs_expr.emplace_back(BufHandle(exprs_[input_].AsNode<Buf>()));
-    else
+    } else {
       inputs_expr.emplace_back(VarHandle(exprs_[input_].AsNode<Var>()));
+    }
   }
   return inputs_expr;
 }
@@ -226,8 +227,8 @@ void GraphBuilder::compile() {
       } else if (shapeFuncs.contains(*node->maybeOperator())) {
         outputShape = (*shapeFuncs.find(*node->maybeOperator()))(node, exprs_);
       } else {
-        LONG_TAIL_ABORT("No nnc compute function to support node "
-                        << node->maybeSchema() << std::endl);
+        LONG_TAIL_ABORT("No nnc shape function to support node "
+                        << *node->maybeSchema() << std::endl);
       }
       FunctorShapeMap_[node->output(0)] = outputShape;
       LONG_TAIL_LOG_INFO("Process Node Shape " << *node->maybeSchema()
@@ -242,8 +243,14 @@ void GraphBuilder::compile() {
             node->output(0)->type()->cast<TensorType>()->scalarType().value());
       } else if (node->maybeSchema()) {
         NNCLoweringFunction lowering;
+        lowering = getStandardLoweringFor(c10::toString(node->schema()));
         if (lowering) {
-          lowering = getStandardLoweringFor(c10::toString(node->schema()));
+          get_stride_by_expr_dims(outputShape);
+
+          output_tensor = lowering(
+              inputs_expr, outputShape, get_stride_by_expr_dims(outputShape),
+              node->output(0)->type()->cast<TensorType>()->scalarType().value(),
+              device_);
         } else {
           node->maybeSchema()->dump();
           LONG_TAIL_ABORT("Cannot find compute op for "

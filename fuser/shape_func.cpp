@@ -121,7 +121,7 @@ static ShapeVec computeSliceShapeNew(SHAPE_FUNC_PARAMS) {
     start = LongImm::make(0);
   else
     start = getScalarExpr<int64_t>(startVal, valueToExpr);
-  start = IfThenElse::make(start >= 0, Min::make(start, dimSize, true),
+  start = IfThenElse::make(start >= int64_t(0), Min::make(start, dimSize, true),
                            start + dimSize);
 
   // End
@@ -131,8 +131,8 @@ static ShapeVec computeSliceShapeNew(SHAPE_FUNC_PARAMS) {
     end = dimSize;
   else
     end = getScalarExpr<int64_t>(endVal, valueToExpr);
-  end =
-      IfThenElse::make(end >= 0, Min::make(end, dimSize, true), end + dimSize);
+  end = IfThenElse::make(end >= int64_t(0), Min::make(end, dimSize, true),
+                         end + dimSize);
 
   // Step
   int64_t step = GET_INT_CONST_AT(4);
@@ -203,6 +203,7 @@ OperatorSet identicalShapeOps{
     "tssa::SelectSet(Tensor self, Tensor src, int dim, int index) -> Tensor",
     "tssa::SliceSet(Tensor self, Tensor src, int dim=0, SymInt? start=None, "
     "SymInt? end=None, SymInt step=1) -> Tensor",
+    "tssa::Assign(Tensor self, Tensor src) -> Tensor",
 };
 
 }  // namespace tensorexpr
