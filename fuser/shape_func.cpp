@@ -5,98 +5,7 @@ namespace torch {
 namespace jit {
 namespace tensorexpr {
 
-std::vector<ExprHandle> computePointwiseShape(
-    std::vector<ArgValue> input_args) {
-  return c10::get_if<BufHandle>(&input_args[0])->dims();
-}
-
-std::vector<ExprHandle> computeSelectShape(std::vector<ArgValue> input_args) {
-  // TODO: DIM Must be a constant
-  auto src = c10::get_if<BufHandle>(&input_args[0]);
-  auto dim = *c10::get_if<int64_t>(&input_args[1]);
-  // if (!dim) {
-  //   std::cout << "[ERROR] Must be a constant by now!" << std::endl;
-  //   throw unsupported_dtype("[ERROR] Must be a constant by now!");
-  // }
-  dim = dim == -1 ? src->dims().size() - 1 : dim;
-
-  auto result = src->dims();
-  result.erase(result.begin() + dim);
-  return result;
-}
-
-std::vector<ExprHandle> computeSliceShape(std::vector<ArgValue> input_args) {
-  auto src = c10::get_if<BufHandle>(&input_args[0]);
-  auto dim = *c10::get_if<int64_t>(&input_args[1]);
-  dim = dim == -1 ? src->dims().size() - 1 : dim;
-  int64_t start;
-  if (c10::get_if<ArgNone>(&input_args[2])) {
-    start = 0;
-  } else {
-    start = *c10::get_if<int64_t>(&input_args[2]);
-  }
-  ExprHandle start_expr = LongImm::make(start);
-
-  ExprHandle end_expr;
-  if (c10::get_if<ArgNone>(&input_args[3])) {
-    end_expr = src->dim(dim);
-  } else {
-    end_expr = LongImm::make(*c10::get_if<int64_t>(&input_args[3]));
-  }
-
-  int64_t step = *c10::get_if<int64_t>(&input_args[4]);
-  ExprHandle step_expr = LongImm::make(step);
-  std::vector<ExprHandle> result = src->dims();
-  result[dim] =
-      Min::make((end_expr - start_expr) / step_expr, src->dim(dim), true);
-  return result;
-}
-
-std::vector<ExprHandle> computePermuteShape(std::vector<ArgValue> input_args) {
-  auto src = c10::get_if<BufHandle>(&input_args[0]);
-  auto new_index = *c10::get_if<IntList>(&input_args[1]);
-  auto src_dims = src->dims();
-  std::vector<ExprHandle> result;
-  for (auto idx : new_index) {
-    result.push_back(src_dims[idx]);
-  }
-
-  return result;
-}
-
-std::vector<ExprHandle> computeReshapeShape(std::vector<ArgValue> input_args) {
-  auto src = c10::get_if<BufHandle>(&input_args[0]);
-  auto shape = *c10::get_if<IntList>(&input_args[1]);
-  std::vector<ExprHandle> result;
-
-  for (auto dim : shape) {
-    result.push_back(LongImm::make(dim));
-  }
-
-  auto base = LongImm::make(1);
-  for (auto dim : src->dims()) {
-    base = base * dim;
-  }
-
-  auto result_base = LongImm::make(1);
-  for (int i = 0; i < result.size(); i++) {
-    auto dim = result[i];
-    if (dim.AsNode<LongImm>()->value() != -1) {
-      result_base = ExprHandle(dim) * result_base;
-    }
-  }
-
-  for (int i = 0; i < result.size(); i++) {
-    auto dim = result[i];
-    if (dim.AsNode<LongImm>()->value() == -1) {
-      result[i] = base / result_base;
-    }
-  }
-
-  return result;
-}
-
-static ShapeVec computeSelectShapeNew(SHAPE_FUNC_PARAMS) {
+static ShapeVec computeSelectShape(SHAPE_FUNC_PARAMS) {
   auto src = GET_BUF_AT(0);
   auto rank = src.dims().size();
   auto dim = GET_INT_CONST_AT(1);
@@ -106,7 +15,7 @@ static ShapeVec computeSelectShapeNew(SHAPE_FUNC_PARAMS) {
   return result;
 }
 
-static ShapeVec computeSliceShapeNew(SHAPE_FUNC_PARAMS) {
+static ShapeVec computeSliceShape(SHAPE_FUNC_PARAMS) {
   // Tensor
   auto src = GET_BUF_AT(0);
   auto rank = src.dims().size();
@@ -144,7 +53,7 @@ static ShapeVec computeSliceShapeNew(SHAPE_FUNC_PARAMS) {
   return result;
 }
 
-static ShapeVec computePermuteShapeNew(SHAPE_FUNC_PARAMS) {
+static ShapeVec computePermuteShape(SHAPE_FUNC_PARAMS) {
   auto src = GET_BUF_AT(0);
   auto new_index = *constant_as<IntList>(node->input(1));
   auto src_dims = src.dims();
@@ -155,7 +64,7 @@ static ShapeVec computePermuteShapeNew(SHAPE_FUNC_PARAMS) {
   return result;
 }
 
-static ShapeVec computeReshapeShapeNew(SHAPE_FUNC_PARAMS) {
+static ShapeVec computeReshapeShape(SHAPE_FUNC_PARAMS) {
   // Count elements in source tensor
   auto src = GET_BUF_AT(0);
   auto srcShape = src.dims();
@@ -188,14 +97,14 @@ static auto _tssaSetOps = registerTssaSetOps();
 
 OperatorMap<NNCShapeFunction> shapeFuncs{
     {"aten::select.int(Tensor(a) self, int dim, int index) -> Tensor(a)",
-     computeSelectShapeNew},
+     computeSelectShape},
     {"aten::slice.Tensor(Tensor(a) self, int dim=0, SymInt? start=None, "
      "SymInt? end=None, SymInt step=1) -> Tensor(a)",
-     computeSliceShapeNew},
+     computeSliceShape},
     {"aten::permute(Tensor(a) self, int[] dims) -> Tensor(a)",
-     computePermuteShapeNew},
+     computePermuteShape},
     {"aten::reshape(Tensor(a) self, SymInt[] shape) -> Tensor(a)",
-     computeReshapeShapeNew},
+     computeReshapeShape},
 };
 
 OperatorSet identicalShapeOps{

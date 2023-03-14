@@ -128,12 +128,10 @@ static void runCase(const json &inputCase, const FunctionSchema &schema) {
   auto refGraph = std::make_shared<Graph>();
   refGraph->registerOutput(createNode(inputCase, schema, refGraph.get()));
   ConstantPropagation(refGraph);
-  refGraph->dump();
 
   // Construct graph with fused functor
   auto compiledGraph = refGraph->copy();
   createFusedFunctor(compiledGraph);
-  compiledGraph->dump();
 
   // Generate inputs
   std::vector<IValue> inputs;
@@ -157,6 +155,7 @@ static void runCase(const json &inputCase, const FunctionSchema &schema) {
     InterpreterState(code).run(stack);
     compileOut = stack.front().toTensor();
   }
+
   // Compare result
   TORCH_CHECK(at::allclose(refOut, compileOut, 1e-3, 1e-5));
 }

@@ -108,13 +108,6 @@ class GraphBuilder {
 
   std::shared_ptr<Graph> graph_;
 
-  std::unordered_map<c10::Symbol, NNCShapeFunction> shape_func = {
-      {c10::aten::add, computePointwiseShape},
-      {c10::aten::select, computeSelectShape},
-      {c10::aten::slice, computeSliceShape},
-      {c10::aten::permute, computePermuteShape},
-      {c10::aten::reshape, computeReshapeShape}};
-
   std::unique_ptr<CodeGen> codegen_;
 };
 
