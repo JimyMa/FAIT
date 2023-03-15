@@ -140,7 +140,7 @@ void GraphBuilder::compile() {
   // Step 1: Bind inputs to buffers.
   auto block = alloc<torch::jit::tensorexpr::Block>(std::vector<StmtPtr>({}));
 
-  // TODO: Get Shape VarHandle
+  // Get Shape VarHandle
   auto parallel_args_idx = 0;
   auto graph_args_idx = 0;
   for (auto is_paralleled_arg : is_parallelled_args_) {
@@ -157,7 +157,9 @@ void GraphBuilder::compile() {
           if (symbolic_dims[i].is_static()) {
             value_dims_expr.push_back(LongImm::make(symbolic_dims[i].value()));
           } else {
-            value_dims_expr.push_back(VarHandle(set_hash_name("dim"), kLong));
+            auto dim_expr = VarHandle(set_hash_name("dim"), kLong);
+            value_dims_expr.push_back(dim_expr);
+            FunctorShapeVarArgs.emplace_back(dim_expr);
           }
         }
         FunctorShapeMap_[graph_arg] = value_dims_expr;
@@ -179,21 +181,25 @@ void GraphBuilder::compile() {
             set_hash_name("InputBuf"), FunctorShapeMap_[input_],
             ToDtype(input_->type()->cast<TensorType>()->scalarType().value()));
         exprs_[input_] = ExprHandle(input_buf.node());
+        FunctorInputBufArgs.emplace_back(input_buf);
         break;
       }
       case TypeKind::FloatType: {
         VarHandle v(set_hash_name("InputVar"), kFloat);
         exprs_[input_] = ExprHandle(v.node());
+        FunctorInputVarArgs.emplace_back(v);
         break;
       }
       case TypeKind::BoolType: {
         VarHandle v(set_hash_name("InputVar"), kBool);
         exprs_[input_] = ExprHandle(v.node());
+        FunctorInputVarArgs.emplace_back(v);
         break;
       }
       case TypeKind::IntType: {
         VarHandle v(set_hash_name("InputVar"), kLong);
         exprs_[input_] = ExprHandle(v.node());
+        FunctorInputVarArgs.emplace_back(v);
         break;
       }
       default: {
@@ -292,6 +298,7 @@ void GraphBuilder::compile() {
   // Step 3: Register Output
   for (auto output : graph_->outputs()) {
     bufOutputs_.insert(exprs_[output].AsNode<Buf>());
+    FunctorOutputBufArgs.emplace_back(BufHandle(exprs_[output].AsNode<Buf>()));
   }
 
   // Step 4: Functor Parallelization
@@ -349,19 +356,14 @@ void GraphBuilder::compile() {
     LONG_TAIL_LOG_INFO(to_string(stmt_));
   }
 
-  for (auto input_value_shape : FunctorShapeMap_) {
-    auto input_shape = input_value_shape.second;
-    for (auto dim : input_shape) {
-      auto functor_dim = dim.AsNode<Var>();
-      if (!functor_dim) continue;
-      std::vector<VarHandle> par_dims;
-      for (int i = 0; i < degree_; i++) {
-        auto par_dim =
-            VarHandle(set_hash_name(functor_dim->name_hint()), kLong);
-        par_dims.push_back(par_dim);
-      }
-      ShapeVarParallelFunctorMap[functor_dim] = par_dims;
+  for (auto functor_dim : FunctorShapeVarArgs) {
+    std::vector<VarHandle> par_dims;
+    for (int i = 0; i < degree_; i++) {
+      auto par_dim = VarHandle(
+          set_hash_name(functor_dim.AsNode<Var>()->name_hint()), kLong);
+      par_dims.push_back(par_dim);
     }
+    ShapeVarParallelFunctorMap[functor_dim.AsNode<Var>()] = par_dims;
   }
 
   // Input Value Replacement
@@ -467,31 +469,31 @@ void GraphBuilder::compile() {
 
   // input
   // buf
-  for (auto input : LoadBufParallelFunctorMap) {
-    auto par_inputs = input.second;
+  for (auto input : FunctorInputBufArgs) {
+    auto par_inputs = LoadBufParallelFunctorMap[input.AsNode<Buf>()];
     for (auto par_input : par_inputs) {
       ParallelBufferArgs_.push_back(par_input);
     }
   }
   // var
-  for (auto input : LoadVarParallelFunctorMap) {
-    auto par_inputs = input.second;
+  for (auto input : FunctorInputVarArgs) {
+    auto par_inputs = LoadVarParallelFunctorMap[input.AsNode<Var>()];
     for (auto par_input : par_inputs) {
       ParallelBufferArgs_.push_back(par_input);
     }
   }
 
   // shape
-  for (auto dim : ShapeVarParallelFunctorMap) {
-    auto par_dims = dim.second;
+  for (auto dim : FunctorShapeVarArgs) {
+    auto par_dims = ShapeVarParallelFunctorMap[dim.AsNode<Var>()];
     for (auto par_dim : par_dims) {
       ParallelBufferArgs_.push_back(par_dim);
     }
   }
 
   // output
-  for (auto output : StoreBufParallelFunctorMap) {
-    auto par_outputs = output.second;
+  for (auto output : FunctorOutputBufArgs) {
+    auto par_outputs = StoreBufParallelFunctorMap[output.AsNode<Buf>()];
     for (auto par_output : par_outputs) {
       ParallelBufferArgs_.push_back(par_output);
     }
@@ -533,22 +535,24 @@ std::vector<CodeGen::CallArg> GraphBuilder::prepareRunArgs(
       auto functor_shape_expr = FunctorShapeMap_.at(input_value);
 
       for (int i = 0; i < degree_; i++) {
-        std::vector<CodeGen::CallArg> shape_args_per_degree;
         auto tensor_input = list_input[i].get().toTensor();
         runArgs.emplace_back(tensor_input.data_ptr());
-        auto tensor_type = refined_types_[input_idx]->cast<TensorType>();
-        for (int64_t dim_idx = 0; dim_idx < tensor_type->sizes().size();
-             dim_idx++) {
-          if (!tensor_type->symbolic_sizes()[dim_idx].is_static()) {
-            shape_args_per_degree.emplace_back(tensor_input.size(dim_idx));
+      }
+
+      auto tensor_type = refined_types_[input_idx]->cast<TensorType>();
+      for (int64_t dim_idx = 0; dim_idx < tensor_type->sizes().size();
+           dim_idx++) {
+        if (!tensor_type->symbolic_sizes()[dim_idx].is_static()) {
+          for (int i = 0; i < degree_; i++) {
+            auto tensor_input = list_input[i].get().toTensor();
+            auto dim_value = tensor_input.size(dim_idx);
+            runArgs.emplace_back(dim_value);
             VarPtr functor_shape_var =
                 functor_shape_expr[dim_idx].AsNode<Var>();
             dim_map[ShapeVarParallelFunctorMap.at(functor_shape_var)[i]
-                        .node()] = tensor_input.size(dim_idx);
+                        .node()] = dim_value;
           }
         }
-
-        shape_args_degree.emplace_back(shape_args_per_degree);
       }
     } else if (input.isDoubleList()) {
       auto list_input = input.toDoubleList();
@@ -569,22 +573,17 @@ std::vector<CodeGen::CallArg> GraphBuilder::prepareRunArgs(
       auto tensor_input = input.toTensor();
       auto functor_shape_expr = FunctorShapeMap_.at(input_value);
 
-      for (int i = 0; i < degree_; i++) {
-        std::vector<CodeGen::CallArg> shape_args_per_degree;
-        runArgs.emplace_back(tensor_input.data_ptr());
-        auto tensor_type = refined_types_[input_idx]->cast<TensorType>();
-        for (int64_t dim_idx = 0; dim_idx < tensor_type->sizes().size();
-             dim_idx++) {
-          if (!tensor_type->symbolic_sizes()[dim_idx].is_static()) {
-            shape_args_per_degree.emplace_back(tensor_input.size(dim_idx));
-            VarPtr functor_shape_var =
-                functor_shape_expr[dim_idx].AsNode<Var>();
-            dim_map[ShapeVarParallelFunctorMap.at(functor_shape_var)[i]
-                        .node()] = tensor_input.size(dim_idx);
-          }
+      std::vector<CodeGen::CallArg> shape_args_per_degree;
+      runArgs.emplace_back(tensor_input.data_ptr());
+      auto tensor_type = refined_types_[input_idx]->cast<TensorType>();
+      for (int64_t dim_idx = 0; dim_idx < tensor_type->sizes().size();
+           dim_idx++) {
+        if (!tensor_type->symbolic_sizes()[dim_idx].is_static()) {
+          VarPtr functor_shape_var = functor_shape_expr[dim_idx].AsNode<Var>();
+          dim_map[ShapeVarParallelFunctorMap.at(functor_shape_var)[0].node()] =
+              tensor_input.size(dim_idx);
+          runArgs.emplace_back(tensor_input.size(dim_idx));
         }
-
-        shape_args_degree.emplace_back(shape_args_per_degree);
       }
     } else if (input.isDouble()) {
       auto double_input = input.toDouble();
@@ -593,11 +592,6 @@ std::vector<CodeGen::CallArg> GraphBuilder::prepareRunArgs(
       }
     } else {
       throw unsupported_dtype();
-    }
-  }
-  for (int i = 0; i < shape_args_degree[0].size(); i++) {
-    for (int j = 0; j < degree_; j++) {
-      runArgs.emplace_back(shape_args_degree[j][i]);
     }
   }
 
@@ -617,7 +611,8 @@ std::vector<CodeGen::CallArg> GraphBuilder::prepareRunArgs(
         output_shape.push_back(dim);
       }
       auto output_tensor = codegen_->empty_strided(
-          output_shape, get_stride_by_shape(output_shape), c10::kFloat,
+          output_shape, get_stride_by_shape(output_shape),
+          *output_value->type()->cast<TensorType>()->scalarType(),
           c10::kStrided, device_, false);
       list_output.emplace_back(output_tensor);
       runArgs.emplace_back(output_tensor.data_ptr());
