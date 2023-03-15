@@ -94,6 +94,11 @@ class GraphBuilder {
 
   std::unordered_map<std::string, int> name_hash_map_;
 
+  std::vector<BufHandle> FunctorInputBufArgs;
+  std::vector<VarHandle> FunctorInputVarArgs;
+  std::vector<BufHandle> FunctorOutputBufArgs;
+  std::vector<VarHandle> FunctorShapeVarArgs;
+
   std::unordered_map<BufPtr, std::vector<BufHandle>> LoadBufParallelFunctorMap;
   std::unordered_map<VarPtr, std::vector<VarHandle>> LoadVarParallelFunctorMap;
   std::unordered_map<VarPtr, std::vector<VarHandle>> ShapeVarParallelFunctorMap;

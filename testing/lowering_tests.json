@@ -2,7 +2,7 @@
   "add": {
     "schema": "aten::add.Tensor(Tensor self, Tensor other, *, Scalar alpha=1) -> Tensor",
     "cases": [
-      [ [ { "shape": [ 2, 1, 4 ], "dtype": "Float" }, { "shape": [ 3, 1 ], "dtype": "Float" } ], { } ]
+      [ [ { "shape": [ 1, 1 ], "dtype": "Float" }, { "shape": [ 2, 1, 4 ], "dtype": "Float" } ], { } ]
     ]
   },
   "select": {
