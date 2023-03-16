@@ -59,7 +59,6 @@ OperatorSet fusableOps{
     "aten::select.int(Tensor(a) self, int dim, int index) -> Tensor(a)",
     "aten::slice.Tensor(Tensor(a) self, int dim=0, SymInt? start=None, SymInt? "
     "end=None, SymInt step=1) -> Tensor(a)",
-    "aten::squeeze(Tensor(a) self) -> Tensor(a)",
     "aten::squeeze.dim(Tensor(a) self, int dim) -> Tensor(a)",
     "aten::unsqueeze(Tensor(a) self, int dim) -> Tensor(a)",
     "aten::reshape(Tensor(a) self, SymInt[] shape) -> Tensor(a)",

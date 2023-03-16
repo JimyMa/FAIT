@@ -117,6 +117,8 @@ std::vector<ArgValue> GraphBuilder::get_input_expr(Node* node) {
         inputs_expr.emplace_back(ArgNone());
       } else if (val.isIntList()) {
         inputs_expr.emplace_back(val.toIntVector());
+      } else if (val.isDevice()) {
+        inputs_expr.emplace_back(ArgNone());
       } else {
         throw unsupported_dtype();
       }

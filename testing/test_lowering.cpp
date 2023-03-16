@@ -1,15 +1,16 @@
 #include <ATen/cuda/CUDAGeneratorImpl.h>
 #include <ATen/ops/allclose.h>
 #include <ATen/ops/rand.h>
+#include <ATen/ops/randint.h>
 #include <torch/csrc/jit/api/function_impl.h>
 #include <torch/csrc/jit/ir/ir.h>
-#include <torch/csrc/jit/passes/constant_propagation.h>
 #include <torchvision/vision.h>
 
 #include <fstream>
 #include <iostream>
 #include <nlohmann/json.hpp>
 
+#include "passes/common_passes.h"
 #include "passes/fuse_ops.h"
 #include "passes/te_op.h"
 #include "util/common.h"
@@ -31,6 +32,17 @@ static Value *createValue(TypePtr type, const json &input, Graph *graph) {
 
     case TypeKind::FloatType: {
       return graph->insertConstant(input.get<float>());
+    } break;
+
+    case TypeKind::NumberType: {
+      IValue value;
+      if (input.is_number_float())
+        value = input.get<float>();
+      else if (input.is_number_integer())
+        value = input.get<int64_t>();
+      else
+        TORCH_CHECK(false, "Cannot convert ", input, " to number");
+      return graph->insertConstant(value);
     } break;
 
     case TypeKind::TensorType: {
@@ -58,6 +70,15 @@ static Value *createValue(TypePtr type, const json &input, Graph *graph) {
                            graph);
     } break;
 
+    case TypeKind::ScalarTypeType: {
+      auto dtype = strToDtype.at(input.at("dtype").get<std::string>());
+      return graph->insertConstant(dtype);
+    } break;
+
+    case TypeKind::DeviceObjType: {
+      return graph->insertConstant(IValue(c10::kCUDA));
+    } break;
+
     default: {
       TORCH_CHECK(false, "Type ", *type, " not supported.");
     }
@@ -65,7 +86,7 @@ static Value *createValue(TypePtr type, const json &input, Graph *graph) {
 }
 
 static Value *createNode(const json &inputCase, const FunctionSchema &schema,
-                         Graph *graph) {
+                         std::shared_ptr<Graph> graph) {
   // Get symbol
   auto symbol = Symbol::fromQualString(schema.name());
 
@@ -75,7 +96,7 @@ static Value *createNode(const json &inputCase, const FunctionSchema &schema,
   for (auto i : c10::irange(argJsons.size())) {
     auto &input = argJsons[i];
     auto type = schema.arguments()[i].type();
-    argValues.push_back(createValue(type, input, graph));
+    argValues.push_back(createValue(type, input, graph.get()));
   }
 
   // Parse keyword arguments
@@ -85,8 +106,11 @@ static Value *createNode(const json &inputCase, const FunctionSchema &schema,
   for (auto &pair : kwargJsons) {
     auto argIdx = *schema.argumentIndexWithName(pair.first);
     auto type = schema.arguments()[argIdx].type();
-    kwargValues.emplace_back(pair.first, createValue(type, pair.second, graph));
+    kwargValues.emplace_back(pair.first,
+                             createValue(type, pair.second, graph.get()));
   }
+
+  FoldConstantsTSSA(graph);
 
   return graph->insert(symbol, argValues, kwargValues);
 }
@@ -122,9 +146,25 @@ static IValue generateInput(TypePtr type) {
   switch (type->kind()) {
     case TypeKind::TensorType: {
       auto tensorTy = type->cast<TensorType>();
-      return at::rand(*tensorTy->sizes().concrete_sizes(), rng,
-                      tensorTy->scalarType(), c10::kStrided, tensorTy->device(),
-                      c10::nullopt);
+      auto shape = *tensorTy->sizes().concrete_sizes();
+      auto dtype = *tensorTy->scalarType();
+      switch (*tensorTy->scalarType()) {
+        case c10::kFloat:
+          return at::rand(shape, rng, c10::kFloat, c10::kStrided, c10::kCUDA,
+                          c10::nullopt);
+
+        case c10::kLong:
+          return at::randint(-4, 5, shape, rng, c10::kLong, c10::kStrided,
+                             c10::kCUDA, c10::nullopt);
+
+        case c10::kBool:
+          return at::randint(0, 2, shape, rng, c10::kBool, c10::kStrided,
+                             c10::kCUDA, c10::nullopt);
+
+        default:
+          TORCH_CHECK(false, "Dtype ", dtype, " not supported");
+      }
+
     } break;
 
     default: {
@@ -136,8 +176,7 @@ static IValue generateInput(TypePtr type) {
 static void runCase(const json &inputCase, const FunctionSchema &schema) {
   // Construct reference graph
   auto refGraph = std::make_shared<Graph>();
-  refGraph->registerOutput(createNode(inputCase, schema, refGraph.get()));
-  ConstantPropagation(refGraph);
+  refGraph->registerOutput(createNode(inputCase, schema, refGraph));
 
   // Construct graph with fused functor
   auto compiledGraph = refGraph->copy();
@@ -154,21 +193,29 @@ static void runCase(const json &inputCase, const FunctionSchema &schema) {
     Code code(refGraph, "test");
     auto stack = inputs;
     InterpreterState(code).run(stack);
-    refOut = stack.front().toTensor();
+    refOut = stack.front().toTensor().cuda();
   }
 
   // Run compiled graph
-  at::Tensor compileOut;
+  at::Tensor compiledOut;
   {
     Code code(compiledGraph, "test");
     auto stack = inputs;
     InterpreterState(code).run(stack);
-    compileOut = stack.front().toTensor();
+    compiledOut = stack.front().toTensor();
   }
 
   // Compare result
-  print(std::cout, refOut, compileOut);
-  TORCH_CHECK(at::allclose(refOut, compileOut, 1e-3, 1e-5));
+  if (at::allclose(refOut, compiledOut, 1e-3, 1e-5)) return;
+
+  // Report inconsistency
+  std::stringstream ss;
+  print(ss, "\nGraph: \n", *refGraph);
+  for (auto i : c10::irange(inputs.size()))
+    print(ss, "\nInput ", i, ": \n", inputs[i], '\n');
+  print(ss, "\nReference output: \n", refOut, '\n');
+  print(ss, "\nCompiled graph output: \n", compiledOut, '\n');
+  TORCH_CHECK(false, ss.str());
 }
 
 static void runOpSuite(const json &opSuite) {

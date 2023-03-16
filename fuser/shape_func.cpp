@@ -6,6 +6,13 @@ namespace torch {
 namespace jit {
 namespace tensorexpr {
 
+static ShapeVec getScalarShape(SHAPE_FUNC_PARAMS) { return {}; }
+
+static ShapeVec computeArangeShape(SHAPE_FUNC_PARAMS) {
+  auto start = GET_INT_EXPR_AT(0), end = GET_INT_EXPR_AT(1);
+  return {end - start};
+}
+
 static ShapeVec computeBcastShape(SHAPE_FUNC_PARAMS) {
   auto lShape = GET_BUF_AT(0).dims(), rShape = GET_BUF_AT(1).dims();
   int64_t lRank = lShape.size(), rRank = rShape.size();
@@ -73,6 +80,16 @@ static ShapeVec computeSliceShape(SHAPE_FUNC_PARAMS) {
   return result;
 }
 
+static ShapeVec computeUnsqueezeShape(SHAPE_FUNC_PARAMS) {
+  auto self = GET_BUF_AT(0);
+  auto shape = self.dims();
+  auto dim = GET_INT_CONST_AT(1);
+  if (dim < 0) dim += shape.size() + 1;
+  auto outShape = self.dims();
+  outShape.insert(outShape.begin() + dim, int64_t(1));
+  return outShape;
+}
+
 static ShapeVec computePermuteShape(SHAPE_FUNC_PARAMS) {
   auto src = GET_BUF_AT(0);
   auto new_index = *constant_as<IntList>(node->input(1));
@@ -93,7 +110,7 @@ static ShapeVec computeReshapeShape(SHAPE_FUNC_PARAMS) {
                       std::mem_fn(&ExprHandle::operator*));
 
   // Count elements in new tensor
-  auto result = getExprList<int64_t>(node->input(1), valueToExpr);
+  auto result = GET_INT_EXPR_LIST_AT(1);
   auto resultCount = LongImm::make(1);
   for (auto i : c10::irange(result.size())) {
     auto dim = result[i];
@@ -113,20 +130,74 @@ static ShapeVec computeReshapeShape(SHAPE_FUNC_PARAMS) {
   return result;
 }
 
+static ShapeVec computeRepeatShape(SHAPE_FUNC_PARAMS) {
+  // Get input shape and repeats
+  auto self = GET_BUF_AT(0);
+  auto inShape = self.dims();
+  int64_t inRank = inShape.size();
+  auto repeats = GET_INT_EXPR_LIST_AT(1);
+  int64_t repeatLen = repeats.size();
+
+  // Multiply shape dimensions by repeats
+  auto outRank = std::max(inRank, repeatLen);
+  ShapeVec outShape(outRank);
+  for (auto i : c10::irange(outRank)) {
+    auto inIdx = inRank - 1 - i, repIdx = repeatLen - 1 - i,
+         outIdx = outRank - 1 - i;
+    ExprHandle outDim;
+    if (inIdx < 0)
+      outDim = repeats[repIdx];
+    else if (repIdx < 0)
+      outDim = inShape[inIdx];
+    else
+      outDim = inShape[inIdx] * repeats[repIdx];
+    outShape[outIdx] = outDim;
+  }
+
+  return outShape;
+}
+
+static ShapeVec computeStackShape(SHAPE_FUNC_PARAMS) {
+  auto tensors = GET_BUF_LIST_AT(0);
+  auto inShape = tensors.front().dims();
+  auto inRank = inShape.size();
+  auto dim = GET_INT_CONST_AT(1);
+  if (dim < 0) dim += inRank + 1;
+  auto outShape = inShape;
+  outShape.insert(outShape.begin() + dim, int64_t(tensors.size()));
+  return outShape;
+}
+
 static auto _tssaSetOps = registerTssaSetOps();
 
 OperatorMap<NNCShapeFunction> shapeFuncs{
+    {"aten::tensor.int(int t, *, ScalarType? dtype=None, Device? device=None, "
+     "bool requires_grad=False) -> Tensor",
+     getScalarShape},
+    {"aten::arange.start(Scalar start, Scalar end, *, ScalarType? "
+     "dtype=None, Layout? layout=None, Device? device=None, bool? "
+     "pin_memory=None) -> Tensor",
+     computeArangeShape},
     {"aten::add.Tensor(Tensor self, Tensor other, *, Scalar alpha=1) -> Tensor",
+     computeBcastShape},
+    {"aten::sub.Tensor(Tensor self, Tensor other, *, Scalar alpha=1) -> Tensor",
+     computeBcastShape},
+    {"aten::mul.Tensor(Tensor self, Tensor other) -> Tensor",
      computeBcastShape},
     {"aten::select.int(Tensor(a) self, int dim, int index) -> Tensor(a)",
      computeSelectShape},
     {"aten::slice.Tensor(Tensor(a) self, int dim=0, SymInt? start=None, "
      "SymInt? end=None, SymInt step=1) -> Tensor(a)",
      computeSliceShape},
+    {"aten::unsqueeze(Tensor(a) self, int dim) -> Tensor(a)",
+     computeUnsqueezeShape},
     {"aten::permute(Tensor(a) self, int[] dims) -> Tensor(a)",
      computePermuteShape},
     {"aten::reshape(Tensor(a) self, SymInt[] shape) -> Tensor(a)",
      computeReshapeShape},
+    {"aten::repeat(Tensor self, SymInt[] repeats) -> Tensor",
+     computeRepeatShape},
+    {"aten::stack(Tensor[] tensors, int dim=0) -> Tensor", computeStackShape},
 };
 
 OperatorSet identicalShapeOps{
@@ -134,6 +205,7 @@ OperatorSet identicalShapeOps{
     "non_blocking=False, bool copy=False, MemoryFormat? memory_format=None) -> "
     "Tensor(a)",
     "aten::sigmoid(Tensor self) -> Tensor",
+    "aten::exp(Tensor self) -> Tensor",
     "aten::clamp(Tensor self, Scalar? min=None, Scalar? max=None) -> Tensor",
     "aten::add.Scalar(Tensor self, Scalar other, Scalar alpha=1) -> Tensor",
     "aten::sub.Scalar(Tensor self, Scalar other, Scalar alpha=1) -> Tensor",

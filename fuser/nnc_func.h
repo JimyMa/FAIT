@@ -21,7 +21,7 @@ using ShapeVec = std::vector<ExprHandle>;
       const ShapeVec &outShape, ScalarType outDtype
 
 using NNCShapeFunction = ShapeVec (*)(SHAPE_FUNC_PARAMS);
-using CustomLoweringFunction = Tensor (*)(CUSTOM_LOWERING_PARAMS);
+using CustomLoweringFunction = std::function<Tensor(CUSTOM_LOWERING_PARAMS)>;
 
 extern OperatorSet identicalShapeOps;
 extern OperatorMap<NNCShapeFunction> shapeFuncs;
