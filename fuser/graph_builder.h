@@ -54,6 +54,8 @@ class GraphBuilder {
 
  private:
   void compile();
+  ExprPtr solveScalarInput(TypePtr type);
+  void solveInput(Value* Input);
   std::vector<ArgValue> get_input_expr(Node* node);
   std::vector<int64_t> get_stride_by_shape(
       const std::vector<int64_t> shape) const;

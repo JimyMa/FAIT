@@ -107,11 +107,11 @@ int main(int argc, const char *argv[]) {
   LONG_TAIL_LOG_INFO("RUN LONG TAIL DONE");
   auto output_tss_parallel = input[0].toTensorList();
 
-  // GraphFunction origin_function("simple_simple_loop", origin_graph, nullptr);
-  // input = {"", a_list};
-  // LONG_TAIL_LOG_INFO("RUN TS BEGIN");
-  // origin_function.run(input);
-  // LONG_TAIL_LOG_INFO("RUN TS DONE");
+  GraphFunction origin_function("simple_simple_loop", origin_graph, nullptr);
+  input = {"", a_list};
+  LONG_TAIL_LOG_INFO("RUN TS BEGIN");
+  origin_function.run(input);
+  LONG_TAIL_LOG_INFO("RUN TS DONE");
 
   input = {"", a_list};
   Code ts_code(origin_graph, "");
@@ -137,7 +137,7 @@ int main(int argc, const char *argv[]) {
   for (int i = 0; i < 10000; i++) {
     // GraphFunction origin_function("normalize", origin_graph, nullptr);
     input = {"", a_list};
-    torch::jit::InterpreterState(ts_code).run(input);
+    origin_function.run(input);
   }
   end = clock();
 
