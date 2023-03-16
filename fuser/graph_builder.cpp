@@ -48,6 +48,7 @@
 #include "tensorexpr/evaluate_output_shape.h"
 #include "tensorexpr/functor_parallization.h"
 #include "tensorexpr/parallel_for_equal_substitution.h"
+#include "tensorexpr/tuple_expr.h"
 #include "util/logging.h"
 
 using namespace torch::jit::tensorexpr;
@@ -120,7 +121,7 @@ std::vector<ArgValue> GraphBuilder::get_input_expr(Node* node) {
       } else if (val.isDevice()) {
         inputs_expr.emplace_back(ArgNone());
       } else {
-        throw unsupported_dtype();
+        throw unsupported_dtype(val.type()->annotation_str());
       }
     } else if (input_->type()->cast<TensorType>()) {
       inputs_expr.emplace_back(BufHandle(exprs_[input_].AsNode<Buf>()));
@@ -129,6 +130,81 @@ std::vector<ArgValue> GraphBuilder::get_input_expr(Node* node) {
     }
   }
   return inputs_expr;
+}
+
+ExprPtr GraphBuilder::solveScalarInput(TypePtr type) {
+  switch (type->kind()) {
+    case TypeKind::TupleType: {
+      std::vector<ExprPtr> elements;
+      for (auto element_type : type->cast<TupleType>()->containedTypes()) {
+        elements.emplace_back(solveScalarInput(element_type));
+      }
+      return Tuple::make(elements, ToDtype(ScalarType::Undefined)).node();
+    }
+    case TypeKind::FloatType: {
+      VarHandle v(set_hash_name("InputVar"), kFloat);
+      return v.node();
+    }
+    case TypeKind::BoolType: {
+      VarHandle v(set_hash_name("InputVar"), kBool);
+      return v.node();
+    }
+    case TypeKind::IntType: {
+      VarHandle v(set_hash_name("InputVar"), kLong);
+      return v.node();
+    }
+    default: {
+      throw unsupported_dtype(type->repr_str());
+      break;
+    }
+  }
+}
+
+static std::vector<VarHandle> getVarListByTupleNode(ExprPtr expr) {
+  if (auto var_node = static_to<Var>(expr)) {
+    return std::vector<VarHandle>({
+        VarHandle(var_node),
+    });
+  } else if (auto tuple_node = static_to<Tuple>(expr)) {
+    std::vector<VarHandle> result;
+    for (auto element : tuple_node->elements()) {
+      auto var_list = getVarListByTupleNode(element);
+      result.insert(result.end(), var_list.begin(), var_list.end());
+    }
+    return result;
+  } else {
+    LONG_TAIL_ABORT("UNSUPPORT TYPE FOR getVarListByTupleNode: "
+                    << toString(expr->dtype().scalar_type()));
+  }
+}
+
+void GraphBuilder::solveInput(Value* input_) {
+  switch (input_->type()->kind()) {
+    case TypeKind::TensorType: {
+      BufHandle input_buf(
+          set_hash_name("InputBuf"), FunctorShapeMap_[input_],
+          ToDtype(input_->type()->cast<TensorType>()->scalarType().value()));
+      exprs_[input_] = ExprHandle(input_buf.node());
+      FunctorInputBufArgs.emplace_back(input_buf);
+      break;
+    }
+    case TypeKind::FloatType:
+    case TypeKind::BoolType:
+    case TypeKind::IntType:
+    case TypeKind::TupleType: {
+      auto expr = solveScalarInput(input_->type());
+      exprs_[input_] = ExprHandle(expr);
+      auto var_list = getVarListByTupleNode(expr);
+      FunctorInputVarArgs.insert(FunctorInputVarArgs.end(), var_list.begin(),
+                                 var_list.end());
+
+      break;
+    }
+    default: {
+      throw unsupported_dtype(input_->type()->repr_str());
+      break;
+    }
+  }
 }
 
 void GraphBuilder::compile() {
@@ -176,39 +252,7 @@ void GraphBuilder::compile() {
     // Tensor Type are Supported by now");
     // AT_ASSERT(input_->type()->cast<TensorType>()->scalarType().has_value(),
     // "ScalarType must be complete");
-
-    switch (input_->type()->kind()) {
-      case TypeKind::TensorType: {
-        BufHandle input_buf(
-            set_hash_name("InputBuf"), FunctorShapeMap_[input_],
-            ToDtype(input_->type()->cast<TensorType>()->scalarType().value()));
-        exprs_[input_] = ExprHandle(input_buf.node());
-        FunctorInputBufArgs.emplace_back(input_buf);
-        break;
-      }
-      case TypeKind::FloatType: {
-        VarHandle v(set_hash_name("InputVar"), kFloat);
-        exprs_[input_] = ExprHandle(v.node());
-        FunctorInputVarArgs.emplace_back(v);
-        break;
-      }
-      case TypeKind::BoolType: {
-        VarHandle v(set_hash_name("InputVar"), kBool);
-        exprs_[input_] = ExprHandle(v.node());
-        FunctorInputVarArgs.emplace_back(v);
-        break;
-      }
-      case TypeKind::IntType: {
-        VarHandle v(set_hash_name("InputVar"), kLong);
-        exprs_[input_] = ExprHandle(v.node());
-        FunctorInputVarArgs.emplace_back(v);
-        break;
-      }
-      default: {
-        throw unsupported_dtype(input_->type()->repr_str());
-        break;
-      }
-    }
+    solveInput(input_);
   }
   LONG_TAIL_LOG_INFO("Input Buffer end!!");
   // Step 2: Bind Node to Compute Op
@@ -258,6 +302,7 @@ void GraphBuilder::compile() {
                                                        << " Begin ...");
 
         if (customLoweringFuncs.contains(*node->maybeOperator())) {
+          LONG_TAIL_LOG_INFO("custom lowering ...");
           output_tensor = (*customLoweringFuncs.find(*node->maybeOperator()))(
               node, exprs_, outputShape,
               node->output(0)
@@ -269,6 +314,7 @@ void GraphBuilder::compile() {
           NNCLoweringFunction lowering;
           lowering = getStandardLoweringFor(c10::toString(node->schema()));
           if (lowering) {
+            LONG_TAIL_LOG_INFO("standard lowering ...");
             get_stride_by_expr_dims(outputShape);
 
             output_tensor = lowering(inputs_expr, outputShape,
@@ -280,7 +326,6 @@ void GraphBuilder::compile() {
                                          .value(),
                                      device_);
           } else {
-            node->maybeSchema()->dump();
             LONG_TAIL_ABORT("Cannot find compute op for "
                             << *node->maybeSchema());
           }
@@ -296,7 +341,7 @@ void GraphBuilder::compile() {
       }
     }
   }
-  LONG_TAIL_LOG_INFO("Bind Node to Compute Op Begin");
+  LONG_TAIL_LOG_INFO("Bind Node to Compute Op End");
   // Step 3: Register Output
   for (auto output : graph_->outputs()) {
     bufOutputs_.insert(exprs_[output].AsNode<Buf>());
