@@ -243,8 +243,8 @@ OperatorMap<CustomLoweringFunction> customLoweringFuncs{
      "Layout? layout=None, Device? device=None, bool? pin_memory=None) -> "
      "Tensor",
      computeArange},
-    {"aten::add.Scalar(Tensor self, Scalar other, Scalar alpha=1) -> Tensor",
-     getComputeBinaryScalar(&Add::make)},
+    // {"aten::add.Scalar(Tensor self, Scalar other, Scalar alpha=1) -> Tensor",
+    // getComputeBinaryScalar(&Add::make)},
     {"aten::select.int(Tensor(a) self, int dim, int index) -> Tensor(a)",
      computeSelect},
     {"tssa::SelectSet(Tensor self, Tensor src, int dim, int index) -> Tensor",

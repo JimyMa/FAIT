@@ -6,6 +6,10 @@ namespace torch {
 namespace jit {
 namespace tensorexpr {
 
+enum IRNodeTypeExtend {
+  kEnd = IRNodeType::kOther,
+};
+
 class TORCH_API Tuple : public ExprNode<Tuple> {
  public:
   static ExprHandle make(const std::vector<ExprPtr> elements, Dtype dtype) {

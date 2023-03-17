@@ -72,7 +72,7 @@ std::vector<ExprHandle> GraphBuilder::get_stride_by_expr_dims(
   std::vector<ExprHandle> result;
   ExprHandle base = LongImm::make(1);
   for (int i = expr_shape.size() - 1; i >= 0; i--) {
-    result.push_back(base);
+    result.insert(result.begin(), base);
     base = base * expr_shape[i];
   }
   return result;
@@ -137,7 +137,8 @@ ExprPtr GraphBuilder::solveScalarInput(TypePtr type) {
     case TypeKind::TupleType: {
       std::vector<ExprPtr> elements;
       for (auto element_type : type->cast<TupleType>()->containedTypes()) {
-        elements.emplace_back(solveScalarInput(element_type));
+        auto element = solveScalarInput(element_type);
+        elements.emplace_back(element);
       }
       return Tuple::make(elements, ToDtype(ScalarType::Undefined)).node();
     }
@@ -161,11 +162,11 @@ ExprPtr GraphBuilder::solveScalarInput(TypePtr type) {
 }
 
 static std::vector<VarHandle> getVarListByTupleNode(ExprPtr expr) {
-  if (auto var_node = static_to<Var>(expr)) {
+  if (auto var_node = to<Var>(expr)) {
     return std::vector<VarHandle>({
         VarHandle(var_node),
     });
-  } else if (auto tuple_node = static_to<Tuple>(expr)) {
+  } else if (auto tuple_node = to<Tuple>(expr)) {
     std::vector<VarHandle> result;
     for (auto element : tuple_node->elements()) {
       auto var_list = getVarListByTupleNode(element);
@@ -277,7 +278,14 @@ void GraphBuilder::compile() {
 
       case prim::ListConstruct:
         break;
-
+      case prim::TupleUnpack: {
+        for (int i = 0; i < node->outputs().size(); i++) {
+          auto output_value = node->output(i);
+          exprs_[output_value] =
+              ExprHandle(exprs_[node->input(0)].AsNode<Tuple>()->elements()[i]);
+        }
+        break;
+      }
       default: {
         TORCH_CHECK(node->maybeSchema(), "Schema not found for node ", *node);
         LONG_TAIL_LOG_INFO("Process Node Shape " << node->schema()
@@ -402,7 +410,6 @@ void GraphBuilder::compile() {
     LONG_TAIL_LOG_INFO("after loop binding: ");
     LONG_TAIL_LOG_INFO(to_string(stmt_));
   }
-
   for (auto functor_dim : FunctorShapeVarArgs) {
     std::vector<VarHandle> par_dims;
     for (int i = 0; i < degree_; i++) {
@@ -412,7 +419,6 @@ void GraphBuilder::compile() {
     }
     ShapeVarParallelFunctorMap[functor_dim.AsNode<Var>()] = par_dims;
   }
-
   // Input Value Replacement
   std::unordered_map<const Value*, BufPtr> input_buf;
   for (auto input : graph_->inputs()) {
@@ -444,6 +450,19 @@ void GraphBuilder::compile() {
         par_bufs.push_back(par_buf);
       }
       LoadBufParallelFunctorMap[exprs_[input].AsNode<Buf>()] = par_bufs;
+    } else if (input->type()->cast<TupleType>()) {
+      auto functor_var_list =
+          getVarListByTupleNode(exprs_[input].AsNode<Tuple>());
+      for (auto functor_expr : functor_var_list) {
+        auto functor_var = functor_expr.node();
+        std::vector<VarHandle> par_vars;
+        for (int i = 0; i < degree_; i++) {
+          auto par_var = VarHandle(set_hash_name(functor_var->name_hint()),
+                                   functor_var->dtype());
+          par_vars.push_back(par_var);
+        }
+        LoadVarParallelFunctorMap[functor_var] = par_vars;
+      }
     } else {
       auto functor_var = exprs_[input].AsNode<Var>();
       std::vector<VarHandle> par_vars;
@@ -460,7 +479,6 @@ void GraphBuilder::compile() {
       stmt_, degree_, new_loop_axis.node(), LoadBufParallelFunctorMap,
       LoadVarParallelFunctorMap);
   l.simplify();
-
   std::unordered_map<const Value*, BufPtr> output_buf;
   for (auto output : graph_->outputs()) {
     auto functor_buf = exprs_[output].AsNode<Buf>();
@@ -489,7 +507,6 @@ void GraphBuilder::compile() {
   stmt_ = FunctorParallization::parallel_functor_store(
       stmt_, degree_, new_loop_axis.node(), StoreBufParallelFunctorMap);
   l.simplify();
-
   stmt_ = FunctorParallization::parallel_functor_shape(
       stmt_, degree_, new_loop_axis.node(), ShapeVarParallelFunctorMap);
   l.simplify();
@@ -576,7 +593,8 @@ std::vector<CodeGen::CallArg> GraphBuilder::prepareRunArgs(
   for (int input_idx = 0; input_idx < inputs.size(); input_idx++) {
     Value* input_value = graph_->inputs()[input_idx];
     auto input = inputs[input_idx];
-
+    input.dump();
+    auto FunctorInputVarArgsIdx = 0;
     if (input.isTensorList()) {
       auto list_input = input.toTensorList();
       auto functor_shape_expr = FunctorShapeMap_.at(input_value);
@@ -615,6 +633,21 @@ std::vector<CodeGen::CallArg> GraphBuilder::prepareRunArgs(
       auto list_input = input.toBoolList();
       for (int i = 0; i < degree_; i++) {
         runArgs.emplace_back(list_input[i].get().toBool());
+      }
+    } else if (input.isList() && input_value->type()->cast<TupleType>()) {
+      auto degree = degree_;
+      auto tuple_lens =
+          input_value->type()->cast<TupleType>()->elements().size();
+
+      for (int i = 0; i < tuple_lens; i++) {
+        for (int j = 0; j < degree_; j++) {
+          auto value =
+              input.toList()[j].get().toTuple().get()->elements()[i].toInt();
+          runArgs.emplace_back(value);
+          // dim_map[LoadVarParallelFunctorMap
+          //             [FunctorInputVarArgs[FunctorInputVarArgsIdx].node()][j]
+          //                 .node()] = value;
+        }
       }
     } else if (input.isTensor()) {
       auto tensor_input = input.toTensor();
