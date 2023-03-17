@@ -4,13 +4,13 @@
 #include <ATen/ops/randint.h>
 #include <torch/csrc/jit/api/function_impl.h>
 #include <torch/csrc/jit/ir/ir.h>
+#include <torch/csrc/jit/passes/constant_propagation.h>
 #include <torchvision/vision.h>
 
 #include <fstream>
 #include <iostream>
 #include <nlohmann/json.hpp>
 
-#include "passes/common_passes.h"
 #include "passes/fuse_ops.h"
 #include "passes/te_op.h"
 #include "util/common.h"
@@ -110,8 +110,6 @@ static Value *createNode(const json &inputCase, const FunctionSchema &schema,
                              createValue(type, pair.second, graph.get()));
   }
 
-  FoldConstantsTSSA(graph);
-
   return graph->insert(symbol, argValues, kwargValues);
 }
 
@@ -125,10 +123,8 @@ static void createFusedFunctor(const std::shared_ptr<Graph> &graph) {
   for (auto node = head->prev(); node != graph->param_node();
        node = node->prev()) {
     if (node->kind() == prim::ListConstruct) {
-      auto tmp = node->next();
       node->moveBefore(head);
       head = node;
-      node = tmp;
     }
   }
 
@@ -177,6 +173,7 @@ static void runCase(const json &inputCase, const FunctionSchema &schema) {
   // Construct reference graph
   auto refGraph = std::make_shared<Graph>();
   refGraph->registerOutput(createNode(inputCase, schema, refGraph));
+  if (!refGraph->inputs().empty()) ConstantPropagation(refGraph);
 
   // Construct graph with fused functor
   auto compiledGraph = refGraph->copy();
@@ -210,7 +207,7 @@ static void runCase(const json &inputCase, const FunctionSchema &schema) {
 
   // Report inconsistency
   std::stringstream ss;
-  print(ss, "\nGraph: \n", *refGraph);
+  print(ss, "\n", *refGraph);
   for (auto i : c10::irange(inputs.size()))
     print(ss, "\nInput ", i, ": \n", inputs[i], '\n');
   print(ss, "\nReference output: \n", refOut, '\n');

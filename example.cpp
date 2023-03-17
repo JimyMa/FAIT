@@ -13,7 +13,7 @@
 #include <torch/csrc/jit/ir/ir.h>
 #include <torch/csrc/jit/runtime/interpreter.h>
 #include <torch/csrc/jit/serialization/import.h>
-#include <torch/serialize/tensor.h>
+#include <torch/serialize.h>
 #include <torchvision/vision.h>
 
 #include "fuser/tssa_set_ops.h"
@@ -94,9 +94,9 @@ int main(int argc, const char *argv[]) {
 
   // Runtime
   at::List<at::Tensor> a_list = {
-      at::ones({1, 255, 10, 10}).to(at::kFloat).cuda() * 0,
-      at::ones({1, 255, 20, 20}).to(at::kFloat).cuda() * 1,
-      at::ones({1, 255, 40, 40}).to(at::kFloat).cuda() * 2};
+      at::rand({1, 255, 10, 10}).to(at::kFloat).cuda(),
+      at::rand({1, 255, 20, 20}).to(at::kFloat).cuda(),
+      at::rand({1, 255, 40, 40}).to(at::kFloat).cuda()};
   Code code(graph, "");
   Stack input = {"", a_list};
 

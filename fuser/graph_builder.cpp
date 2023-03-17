@@ -584,13 +584,7 @@ void GraphBuilder::compile() {
   }
 }
 
-void GraphBuilder::run(torch::jit::Stack& stack) const {
-  try {
-    runKernel(stack);
-  } catch (...) {
-    throw std::runtime_error("ParallelledFunctor Run Kernel Error");
-  }
-}
+void GraphBuilder::run(torch::jit::Stack& stack) const { runKernel(stack); }
 
 std::vector<CodeGen::CallArg> GraphBuilder::prepareRunArgs(
     const at::ArrayRef<IValue>& inputs,

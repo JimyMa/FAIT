@@ -1,4 +1,17 @@
 {
+  "tensor": {
+    "schema": "aten::tensor.int(int t, *, ScalarType? dtype=None, Device? device=None, bool requires_grad=False) -> Tensor",
+    "cases": [
+      [ [ -3 ], { } ]
+    ]
+  },
+  "zeros": {
+    "schema": "aten::zeros(SymInt[] size, *, ScalarType? dtype=None, Layout? layout=None, Device? device=None, bool? pin_memory=None) -> Tensor",
+    "cases": [
+      [ [ [ 2, 3, 4 ] ], { "dtype": 4 } ],
+      [ [ [ 2, 3, 4 ] ], { "dtype": 6 } ]
+    ]
+  },
   "arange": {
     "schema": "aten::arange.start(Scalar start, Scalar end, *, ScalarType? dtype=None, Layout? layout=None, Device? device=None, bool? pin_memory=None) -> Tensor",
     "cases": [
@@ -50,6 +63,18 @@
       [ [ { "shape": [ 3, 2, 4 ], "dtype": "Float" }, [ 2, 3, 1, -1 ] ], { } ]
     ]
   },
+  "permute": {
+    "schema": "aten::permute(Tensor(a) self, int[] dims) -> Tensor(a)",
+    "cases": [
+      [ [ { "shape": [ 2, 3, 4 ], "dtype": "Float" }, [ 1, 0, 2 ] ], { } ]
+    ]
+  },
+  "expand": {
+    "schema": "aten::expand(Tensor(a) self, SymInt[] size, *, bool implicit=False) -> Tensor(a)",
+    "cases": [
+      [ [ { "shape": [ 3, 4 ], "dtype": "Float" }, [ 2, -1, 4 ] ], { } ]
+    ]
+  },
   "repeat": {
     "schema": "aten::repeat(Tensor self, SymInt[] repeats) -> Tensor",
     "cases": [
@@ -60,7 +85,7 @@
   "cat": {
     "schema": "aten::cat(Tensor[] tensors, int dim=0) -> Tensor",
     "cases": [
-      [ [ [ { "shape": [ 2, 2 ], "dtype": "Float" }, { "shape": [ 2, 4 ], "dtype": "Float" } ], 1 ], { } ]
+      [ [ [ { "shape": [ 2, 1 ], "dtype": "Float" }, { "shape": [ 2, 2 ], "dtype": "Float" }, { "shape": [ 2, 3 ], "dtype": "Float" } ], -1 ], { } ]
     ]
   },
   "stack": {

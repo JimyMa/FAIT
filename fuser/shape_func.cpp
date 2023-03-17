@@ -8,6 +8,10 @@ namespace tensorexpr {
 
 static ShapeVec getScalarShape(SHAPE_FUNC_PARAMS) { return {}; }
 
+static ShapeVec computeFillShape(SHAPE_FUNC_PARAMS) {
+  return GET_INT_EXPR_LIST_AT(0);
+}
+
 static ShapeVec computeArangeShape(SHAPE_FUNC_PARAMS) {
   auto start = GET_INT_EXPR_AT(0), end = GET_INT_EXPR_AT(1);
   return {end - start};
@@ -130,6 +134,32 @@ static ShapeVec computeReshapeShape(SHAPE_FUNC_PARAMS) {
   return result;
 }
 
+static ShapeVec computeExpandShape(SHAPE_FUNC_PARAMS) {
+  // Get input shape and new shape
+  auto inShape = GET_BUF_AT(0).dims();
+  auto size = GET_INT_EXPR_LIST_AT(1);
+  int64_t inRank = inShape.size(), sizeLen = size.size();
+
+  // Get new shape
+  auto outRank = std::max(inRank, sizeLen);
+  ShapeVec outShape(outRank);
+  for (auto i : c10::irange(outRank)) {
+    auto inIdx = inRank - 1 - i, sizeIdx = sizeLen - 1 - i,
+         outIdx = outRank - 1 - i;
+    ExprHandle outDim;
+    if (inIdx < 0)
+      outDim = size[sizeIdx];
+    else if (sizeIdx < 0)
+      outDim = inShape[inIdx];
+    else
+      outDim = IfThenElse::make(size[sizeIdx] < int64_t(0), inShape[inIdx],
+                                size[sizeIdx]);
+    outShape[outIdx] = outDim;
+  }
+
+  return outShape;
+}
+
 static ShapeVec computeRepeatShape(SHAPE_FUNC_PARAMS) {
   // Get input shape and repeats
   auto self = GET_BUF_AT(0);
@@ -157,6 +187,19 @@ static ShapeVec computeRepeatShape(SHAPE_FUNC_PARAMS) {
   return outShape;
 }
 
+static ShapeVec computeCatShape(SHAPE_FUNC_PARAMS) {
+  auto tensors = GET_BUF_LIST_AT(0);
+  auto shape = tensors.front().dims();
+  auto inRank = shape.size();
+  auto dim = GET_INT_CONST_AT(1);
+  if (dim < 0) dim += inRank;
+  auto catDim = shape[dim];
+  for (auto i : c10::irange(1, tensors.size()))
+    catDim = catDim + tensors[i].dim(dim);
+  shape[dim] = catDim;
+  return shape;
+}
+
 static ShapeVec computeStackShape(SHAPE_FUNC_PARAMS) {
   auto tensors = GET_BUF_LIST_AT(0);
   auto inShape = tensors.front().dims();
@@ -174,6 +217,9 @@ OperatorMap<NNCShapeFunction> shapeFuncs{
     {"aten::tensor.int(int t, *, ScalarType? dtype=None, Device? device=None, "
      "bool requires_grad=False) -> Tensor",
      getScalarShape},
+    {"aten::zeros(SymInt[] size, *, ScalarType? dtype=None, Layout? "
+     "layout=None, Device? device=None, bool? pin_memory=None) -> Tensor",
+     computeFillShape},
     {"aten::arange.start(Scalar start, Scalar end, *, ScalarType? "
      "dtype=None, Layout? layout=None, Device? device=None, bool? "
      "pin_memory=None) -> Tensor",
@@ -195,8 +241,12 @@ OperatorMap<NNCShapeFunction> shapeFuncs{
      computePermuteShape},
     {"aten::reshape(Tensor(a) self, SymInt[] shape) -> Tensor(a)",
      computeReshapeShape},
+    {"aten::expand(Tensor(a) self, SymInt[] size, *, bool implicit=False) -> "
+     "Tensor(a)",
+     computeExpandShape},
     {"aten::repeat(Tensor self, SymInt[] repeats) -> Tensor",
      computeRepeatShape},
+    {"aten::cat(Tensor[] tensors, int dim=0) -> Tensor", computeCatShape},
     {"aten::stack(Tensor[] tensors, int dim=0) -> Tensor", computeStackShape},
 };
 

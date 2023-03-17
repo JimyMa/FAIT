@@ -13,6 +13,22 @@ namespace torch {
 namespace jit {
 namespace tensorexpr {
 
+static Tensor computeTensor(CUSTOM_LOWERING_PARAMS) {
+  return Compute("tensor", outShape, [&](const ParameterList& axes) {
+    return GET_ANY_SCALAR_EXPR_AT(0);
+  });
+}
+
+template <class T>
+static CustomLoweringFunction getComputeFillConst(T val,
+                                                  const std::string& name) {
+  return [=](CUSTOM_LOWERING_PARAMS) {
+    return Compute("fill_" + name, outShape, [&](const ParameterList& axes) {
+      return ExprHandle(getImmediateByType(Dtype(outDtype), val));
+    });
+  };
+}
+
 static Tensor computeArange(CUSTOM_LOWERING_PARAMS) {
   return Compute("arange", outShape, [&](const VarHandle& i) {
     auto start = GET_INT_EXPR_AT(0);
@@ -33,22 +49,12 @@ static ExprHandle loadBcast(const BufHandle& srcBuf, const ShapeVec& dstShape,
 }
 
 template <class BinOp>
-static CustomLoweringFunction getComputeBinaryBcast(BinOp&& op) {
-  return [&](CUSTOM_LOWERING_PARAMS) {
-    return Compute("binary_bcast", outShape, [&](const ParameterList& axes) {
+static CustomLoweringFunction getComputeBinaryBcast(BinOp&& op,
+                                                    const std::string& name) {
+  return [=](CUSTOM_LOWERING_PARAMS) {
+    return Compute(name + "_bcast", outShape, [&](const ParameterList& axes) {
       auto lhs = loadBcast(GET_BUF_AT(0), outShape, axes);
       auto rhs = loadBcast(GET_BUF_AT(1), outShape, axes);
-      return op(lhs, rhs);
-    });
-  };
-}
-
-template <class BinOp>
-static CustomLoweringFunction getComputeBinaryScalar(BinOp&& op) {
-  return [op](CUSTOM_LOWERING_PARAMS) {
-    return Compute("binary_scalar", outShape, [&](const ParameterList& axes) {
-      auto lhs = GET_BUF_AT(0).load(axes);
-      auto rhs = Cast::make(Dtype(outDtype), GET_ANY_SCALAR_EXPR_AT(1));
       return op(lhs, rhs);
     });
   };
@@ -214,6 +220,35 @@ static Tensor computeRepeat(CUSTOM_LOWERING_PARAMS) {
   });
 }
 
+static Tensor computeCat(CUSTOM_LOWERING_PARAMS) {
+  return Compute("cat", outShape, [&](const ParameterList& axes) {
+    // Process dimension
+    auto bufs = GET_BUF_LIST_AT(0);
+    auto inRank = bufs.front().dims().size();
+    auto dim = GET_INT_CONST_AT(1);
+    if (dim < 0) dim += inRank;
+
+    // Compute section index range
+    std::vector<ExprHandle> indices(bufs.size() + 1);
+    indices[0] = int64_t(0);
+    for (auto i : c10::irange(bufs.size()))
+      indices[i + 1] = indices[i] + bufs[i].dim(dim);
+
+    // Switch buffers according to index range at concatenation axis
+    auto dimAxis = axes[dim];
+    std::vector<ExprHandle> loadAxes(axes.begin(), axes.end());
+    ExprHandle result(getImmediateByType(bufs.front().dtype(), 0));
+    for (int64_t i = bufs.size() - 1; i >= 0; i--) {
+      auto bufLoadAxes = loadAxes;
+      bufLoadAxes[dim] = dimAxis - indices[i];
+      result = IfThenElse::make(ExprHandle(dimAxis) < indices[i + 1],
+                                bufs[i].load(bufLoadAxes), result);
+    }
+
+    return result;
+  });
+}
+
 static Tensor computeStack(CUSTOM_LOWERING_PARAMS) {
   return Compute("stack", outShape, [&](const ParameterList& axes) {
     // Process dimension
@@ -239,12 +274,16 @@ static Tensor computeStack(CUSTOM_LOWERING_PARAMS) {
 static auto _tssaSetOps = registerTssaSetOps();
 
 OperatorMap<CustomLoweringFunction> customLoweringFuncs{
+    {"aten::tensor.int(int t, *, ScalarType? dtype=None, Device? device=None, "
+     "bool requires_grad=False) -> Tensor",
+     computeTensor},
+    {"aten::zeros(SymInt[] size, *, ScalarType? dtype=None, Layout? "
+     "layout=None, Device? device=None, bool? pin_memory=None) -> Tensor",
+     getComputeFillConst(0, "zeros")},
     {"aten::arange.start(Scalar start, Scalar end, *, ScalarType? dtype=None, "
      "Layout? layout=None, Device? device=None, bool? pin_memory=None) -> "
      "Tensor",
      computeArange},
-    // {"aten::add.Scalar(Tensor self, Scalar other, Scalar alpha=1) -> Tensor",
-    // getComputeBinaryScalar(&Add::make)},
     {"aten::select.int(Tensor(a) self, int dim, int index) -> Tensor(a)",
      computeSelect},
     {"tssa::SelectSet(Tensor self, Tensor src, int dim, int index) -> Tensor",
@@ -257,6 +296,7 @@ OperatorMap<CustomLoweringFunction> customLoweringFuncs{
      computeSliceSet},
     {"aten::unsqueeze(Tensor(a) self, int dim) -> Tensor(a)", computeUnsqueeze},
     {"aten::repeat(Tensor self, SymInt[] repeats) -> Tensor", computeRepeat},
+    {"aten::cat(Tensor[] tensors, int dim=0) -> Tensor", computeCat},
     {"aten::stack(Tensor[] tensors, int dim=0) -> Tensor", computeStack},
     {"tssa::Assign(Tensor self, Tensor src) -> Tensor", computeAssign},
 };

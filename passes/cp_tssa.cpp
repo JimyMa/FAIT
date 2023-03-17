@@ -121,8 +121,7 @@ bool FoldConstantsTSSA(const std::shared_ptr<Graph> &graph) {
     if (!outputs) return nullptr;
 
     // Insert constant nodes to the graph
-    graph->setInsertPoint(node->next());
-    Node *lastNode = nullptr;
+    graph->setInsertPoint(node);
     for (auto i = 0u; i < (*outputs).size(); i++) {
       auto ival = (*outputs)[i];
       auto cnstVal = tryInsertConstant(*graph, ival);
@@ -132,7 +131,7 @@ bool FoldConstantsTSSA(const std::shared_ptr<Graph> &graph) {
       changed = true;
     }
 
-    return lastNode;
+    return nullptr;
   });
   return changed;
 }
