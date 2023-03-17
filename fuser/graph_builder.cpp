@@ -186,19 +186,23 @@ void GraphBuilder::solveInput(Value* input_) {
           set_hash_name("InputBuf"), FunctorShapeMap_[input_],
           ToDtype(input_->type()->cast<TensorType>()->scalarType().value()));
       exprs_[input_] = ExprHandle(input_buf.node());
-      FunctorInputBufArgs.emplace_back(input_buf);
+      FunctorInputArgs.emplace_back(input_buf);
       break;
     }
     case TypeKind::FloatType:
     case TypeKind::BoolType:
-    case TypeKind::IntType:
+    case TypeKind::IntType: {
+      auto expr = solveScalarInput(input_->type());
+      exprs_[input_] = ExprHandle(expr);
+      auto var = VarHandle(to<Var>(expr));
+      FunctorInputArgs.emplace_back(var);
+      break;
+    }
     case TypeKind::TupleType: {
       auto expr = solveScalarInput(input_->type());
       exprs_[input_] = ExprHandle(expr);
       auto var_list = getVarListByTupleNode(expr);
-      FunctorInputVarArgs.insert(FunctorInputVarArgs.end(), var_list.begin(),
-                                 var_list.end());
-
+      FunctorInputArgs.emplace_back(var_list);
       break;
     }
     default: {
@@ -533,17 +537,26 @@ void GraphBuilder::compile() {
 
   // input
   // buf
-  for (auto input : FunctorInputBufArgs) {
-    auto par_inputs = LoadBufParallelFunctorMap[input.AsNode<Buf>()];
-    for (auto par_input : par_inputs) {
-      ParallelBufferArgs_.push_back(par_input);
-    }
-  }
-  // var
-  for (auto input : FunctorInputVarArgs) {
-    auto par_inputs = LoadVarParallelFunctorMap[input.AsNode<Var>()];
-    for (auto par_input : par_inputs) {
-      ParallelBufferArgs_.push_back(par_input);
+  for (auto input : FunctorInputArgs) {
+    if (auto buf_input = c10::get_if<BufHandle>(&input)) {
+      auto par_inputs = LoadBufParallelFunctorMap[buf_input->AsNode<Buf>()];
+      for (auto par_input : par_inputs) {
+        ParallelBufferArgs_.push_back(par_input);
+      }
+    } else if (auto var_input = c10::get_if<VarHandle>(&input)) {
+      auto par_inputs = LoadVarParallelFunctorMap[var_input->AsNode<Var>()];
+      for (auto par_input : par_inputs) {
+        ParallelBufferArgs_.push_back(par_input);
+      }
+    } else if (auto var_list_input = c10::get_if<VarList>(&input)) {
+      for (auto var_input : *var_list_input) {
+        auto par_inputs = LoadVarParallelFunctorMap[var_input.AsNode<Var>()];
+        for (auto par_input : par_inputs) {
+          ParallelBufferArgs_.push_back(par_input);
+        }
+      }
+    } else {
+      throw unsupported_dtype();
     }
   }
 
@@ -588,13 +601,12 @@ std::vector<CodeGen::CallArg> GraphBuilder::prepareRunArgs(
   std::vector<CodeGen::CallArg> shape_args;
   LONG_TAIL_LOG_INFO("preparing input and shape call args ... ...");
 
-  std::vector<std::vector<CodeGen::CallArg>> shape_args_degree;
+  std::vector<CodeGen::CallArg> shapeRunArgs;
   std::unordered_map<VarPtr, int64_t> dim_map;
   for (int input_idx = 0; input_idx < inputs.size(); input_idx++) {
     Value* input_value = graph_->inputs()[input_idx];
     auto input = inputs[input_idx];
-    input.dump();
-    auto FunctorInputVarArgsIdx = 0;
+    auto functor_input = FunctorInputArgs[input_idx];
     if (input.isTensorList()) {
       auto list_input = input.toTensorList();
       auto functor_shape_expr = FunctorShapeMap_.at(input_value);
@@ -611,7 +623,7 @@ std::vector<CodeGen::CallArg> GraphBuilder::prepareRunArgs(
           for (int i = 0; i < degree_; i++) {
             auto tensor_input = list_input[i].get().toTensor();
             auto dim_value = tensor_input.size(dim_idx);
-            runArgs.emplace_back(dim_value);
+            shapeRunArgs.emplace_back(dim_value);
             VarPtr functor_shape_var =
                 functor_shape_expr[dim_idx].AsNode<Var>();
             dim_map[ShapeVarParallelFunctorMap.at(functor_shape_var)[i]
@@ -622,31 +634,40 @@ std::vector<CodeGen::CallArg> GraphBuilder::prepareRunArgs(
     } else if (input.isDoubleList()) {
       auto list_input = input.toDoubleList();
       for (int i = 0; i < degree_; i++) {
-        runArgs.emplace_back(list_input[i].get().toDouble());
+        auto value = list_input[i].get().toDouble();
+        runArgs.emplace_back(value);
       }
     } else if (input.isIntList()) {
       auto list_input = input.toIntList();
+      auto functor_input_var = *c10::get_if<VarHandle>(&functor_input);
       for (int i = 0; i < degree_; i++) {
-        runArgs.emplace_back(list_input[i].get().toInt());
+        auto value = list_input[i].get().toInt();
+        runArgs.emplace_back(value);
+        dim_map[LoadVarParallelFunctorMap.at(functor_input_var.node())[i]
+                    .node()] = value;
       }
     } else if (input.isBoolList()) {
       auto list_input = input.toBoolList();
+      auto functor_input_var = *c10::get_if<VarHandle>(&functor_input);
       for (int i = 0; i < degree_; i++) {
-        runArgs.emplace_back(list_input[i].get().toBool());
+        auto value = list_input[i].get().toBool();
+        runArgs.emplace_back(value);
+        dim_map[LoadVarParallelFunctorMap.at(functor_input_var.node())[i]
+                    .node()] = int64_t(value);
       }
     } else if (input.isList() && input_value->type()->cast<TupleType>()) {
       auto degree = degree_;
       auto tuple_lens =
           input_value->type()->cast<TupleType>()->elements().size();
-
+      auto functor_input_var_list = *c10::get_if<VarList>(&functor_input);
       for (int i = 0; i < tuple_lens; i++) {
         for (int j = 0; j < degree_; j++) {
           auto value =
               input.toList()[j].get().toTuple().get()->elements()[i].toInt();
           runArgs.emplace_back(value);
-          // dim_map[LoadVarParallelFunctorMap
-          //             [FunctorInputVarArgs[FunctorInputVarArgsIdx].node()][j]
-          //                 .node()] = value;
+          dim_map[LoadVarParallelFunctorMap
+                      .at(functor_input_var_list[i].node())[j]
+                      .node()] = value;
         }
       }
     } else if (input.isTensor()) {
@@ -662,7 +683,7 @@ std::vector<CodeGen::CallArg> GraphBuilder::prepareRunArgs(
           VarPtr functor_shape_var = functor_shape_expr[dim_idx].AsNode<Var>();
           dim_map[ShapeVarParallelFunctorMap.at(functor_shape_var)[0].node()] =
               tensor_input.size(dim_idx);
-          runArgs.emplace_back(tensor_input.size(dim_idx));
+          shapeRunArgs.emplace_back(tensor_input.size(dim_idx));
         }
       }
     } else if (input.isDouble()) {
@@ -674,6 +695,7 @@ std::vector<CodeGen::CallArg> GraphBuilder::prepareRunArgs(
       throw unsupported_dtype();
     }
   }
+  runArgs.insert(runArgs.end(), shapeRunArgs.begin(), shapeRunArgs.end());
 
   LONG_TAIL_LOG_INFO("preparing input and shape call args DONE!!!");
 

@@ -37,6 +37,11 @@ using namespace torch::jit::tensorexpr;
 namespace torch {
 namespace jit {
 
+using VarList = std::vector<tensorexpr::VarHandle>;
+
+using FunctorInputValue =
+    c10::variant<tensorexpr::BufHandle, tensorexpr::VarHandle, VarList>;
+
 using NNCShapeFunction =
     std::function<std::vector<ExprHandle>(std::vector<ArgValue>)>;
 
@@ -96,6 +101,7 @@ class GraphBuilder {
 
   std::unordered_map<std::string, int> name_hash_map_;
 
+  std::vector<FunctorInputValue> FunctorInputArgs;
   std::vector<BufHandle> FunctorInputBufArgs;
   std::vector<VarHandle> FunctorInputVarArgs;
   std::vector<BufHandle> FunctorOutputBufArgs;
