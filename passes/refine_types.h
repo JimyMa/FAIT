@@ -15,6 +15,11 @@ void RefineInputTypes(const std::shared_ptr<Graph> &graph,
                       const std::vector<TypePtr> &inputTypes,
                       ValueTypeMap &refinedTypes);
 
+/// @brief Parse input types from a JSON file.
+/// @param path The path of the JSON file.
+/// @return Input type list.
+std::vector<TypePtr> parseInputTypes(const std::string &path);
+
 /// @brief Infer data types and devices for tensor values.
 /// @param graph The graph to be processed.
 /// @param refinedTypes The mappings for refined types.

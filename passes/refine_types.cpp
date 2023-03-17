@@ -2,15 +2,20 @@
 
 #include <torch/csrc/jit/ir/ir_views.h>
 
+#include <nlohmann/json.hpp>
+
 #include "canonicalize.h"
 #include "common_passes.h"
 #include "parallelize_loops.h"
 #include "tensor_ssa.h"
 #include "type_utils.h"
 #include "util/ir.h"
+#include "util/types.h"
 
 namespace torch {
 namespace jit {
+
+using json = nlohmann::json;
 
 static TypePtr convertToMatch(TypePtr src, TypePtr tgt) {
   auto srcKind = src->kind(), tgtKind = tgt->kind();
@@ -91,6 +96,57 @@ void removeDeadRefinedTypes(ValueTypeMap &refinedTypes, Graph *graph) {
   for (auto &pair : refinedTypes) deadValues.insert(pair.first);
   markLiveValues(graph->block(), deadValues);
   for (auto dead : deadValues) refinedTypes.erase(dead);
+}
+
+#define STR_TO_TYPE(type) {#type, TypeKind::type},
+
+static std::unordered_map<std::string, TypeKind> strToTypeKind{
+    C10_FORALL_TYPES(STR_TO_TYPE)};
+
+static TypePtr parseType(const json &jsonType) {
+  auto kind = strToTypeKind.at(jsonType.at("kind"));
+  switch (kind) {
+    case TypeKind::BoolType:
+      return BoolType::get();
+
+    case TypeKind::IntType:
+      return IntType::get();
+
+    case TypeKind::FloatType:
+      return FloatType::get();
+
+    case TypeKind::TensorType: {
+      auto shape = jsonType.at("shape").get<std::vector<int64_t>>();
+      auto dtype = strToDtype.at(jsonType.at("dtype").get<std::string>());
+      return TensorType::createContiguous(dtype, c10::kCUDA, shape);
+    }
+
+    case TypeKind::TupleType: {
+      auto elements = jsonType.at("elements").get<std::vector<json>>();
+      std::vector<TypePtr> elemTypes;
+      for (auto &elem : elements) elemTypes.push_back(parseType(elem));
+      return TupleType::create(elemTypes);
+    }
+
+    case TypeKind::ListType: {
+      auto element = parseType(jsonType.at("element"));
+      return ListType::create(element);
+    }
+
+    default: {
+      TORCH_CHECK(false, "Cannot parse type ", jsonType);
+      return nullptr;
+    }
+  }
+}
+
+std::vector<TypePtr> parseInputTypes(const std::string &path) {
+  std::ifstream ifs(path);
+  TORCH_CHECK(ifs, "Cannot open file ", path);
+  auto jsonTypes = json::parse(ifs).get<std::vector<json>>();
+  std::vector<TypePtr> inputTypes;
+  for (auto &json : jsonTypes) inputTypes.push_back(parseType(json));
+  return inputTypes;
 }
 
 void RefineInputTypes(const std::shared_ptr<Graph> &graph,

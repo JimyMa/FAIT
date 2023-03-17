@@ -55,13 +55,13 @@ int main(int argc, const char *argv[]) {
   Freeze(&mod);
   auto graph = mod.get_method("forward").graph();
   auto origin_graph = graph->copy();
-  // std::vector<TypePtr> inputTypes{
-  //     TensorType::createContiguous(c10::kFloat, c10::kCUDA, {800, 1333, 3})};
-  std::vector<TypePtr> inputTypes{TupleType::create({
-      TensorType::createContiguous(c10::kFloat, c10::kCUDA, {1, 255, 10, 10}),
-      TensorType::createContiguous(c10::kFloat, c10::kCUDA, {1, 255, 20, 20}),
-      TensorType::createContiguous(c10::kFloat, c10::kCUDA, {1, 255, 40, 40}),
-  })};
+  // std::vector<TypePtr> inputTypes{TupleType::create({
+  //     TensorType::createContiguous(c10::kFloat, c10::kCUDA, {1, 255, 10,
+  //     10}), TensorType::createContiguous(c10::kFloat, c10::kCUDA, {1, 255,
+  //     20, 20}), TensorType::createContiguous(c10::kFloat, c10::kCUDA, {1,
+  //     255, 40, 40}),
+  // })};
+  auto inputTypes = parseInputTypes(argv[2]);
   ValueTypeMap refinedTypes;
   try {
     RefineInputTypes(graph, inputTypes, refinedTypes);
@@ -84,8 +84,6 @@ int main(int argc, const char *argv[]) {
     FusedOpToParallization(graph, refinedTypes);
     dumpGraphToFile(graph, "after_codegen.rb");
     Validate(graph);
-    // dumpRefinedTypes(refinedTypes);
-    // printOpsInFusionGroups(graph);
   } catch (c10::Error &err) {
     std::cout << err.what();
     dumpGraphToFile(graph, "error.rb");
