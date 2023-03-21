@@ -216,7 +216,7 @@ class YOLOV3BBox(torch.nn.Module):
             pred[..., :2].sigmoid_()
             flatten_preds.append(pred)
             flatten_strides.append(torch.tensor(
-                stride, device='cuda').expand(pred.size(1)))
+                stride, device=pred.device).expand(pred.size(1)))
         flatten_preds = torch.cat(flatten_preds, dim=1)
         flatten_bbox_preds = flatten_preds[..., :4]
         flatten_objectness = flatten_preds[..., 4].sigmoid()

@@ -3,6 +3,8 @@
 //
 #include "passes/te_op.h"
 
+#include <torch/csrc/jit/passes/constant_pooling.h>
+
 #include <memory>
 
 #include "fuser/graph_builder.h"
@@ -118,6 +120,8 @@ static Node* GetParallelledFunctorByParallelMap(
   }
 
   SolveUpdate(subgraph);
+  ConstantPooling(subgraph);
+
   return functor_op;
 }
 
@@ -220,6 +224,7 @@ static Node* GetParallelledFunctorByFusedOp(
     subgraph->registerOutput(values_map[output]);
   }
   SolveUpdate(subgraph);
+  ConstantPooling(subgraph);
   return functor_op;
 }
 

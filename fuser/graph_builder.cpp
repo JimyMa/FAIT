@@ -686,7 +686,7 @@ std::vector<CodeGen::CallArg> GraphBuilder::prepareRunArgs(
         runArgs.emplace_back(double_input);
       }
     } else {
-      throw unsupported_dtype();
+      TORCH_CHECK(false, "Unsupported input type: ", input.tagKind());
     }
   }
   runArgs.insert(runArgs.end(), shapeRunArgs.begin(), shapeRunArgs.end());

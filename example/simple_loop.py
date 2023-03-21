@@ -14,11 +14,13 @@ class SimpleLoop(torch.nn.Module):
             pred = pred.permute(0, 2, 3, 1).reshape(num_imgs, -1, 85)
             pred[..., :2].sigmoid_()
             flatten_preds.append(pred)
-            flatten_strides.append(torch.tensor(stride).expand(pred.size(1)))
+            flatten_strides.append(torch.tensor(
+                stride, device='cuda').expand(pred.size(1)))
         flatten_preds = torch.cat(flatten_preds, dim=1)
         flatten_strides = torch.cat(flatten_strides)
 
         return flatten_preds, flatten_strides
+
 
 mod = torch.jit.script(SimpleLoop())
 mod.eval()

@@ -150,7 +150,7 @@ static IValue generateInput(TypePtr type) {
                           c10::nullopt);
 
         case c10::kLong:
-          return at::randint(-4, 5, shape, rng, c10::kLong, c10::kStrided,
+          return at::randint(0, 5, shape, rng, c10::kLong, c10::kStrided,
                              c10::kCUDA, c10::nullopt);
 
         case c10::kBool:

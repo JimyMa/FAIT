@@ -8,7 +8,6 @@ find_package(TorchVision REQUIRED)
 set(CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS})
 
 set(JSON_BuildTests OFF CACHE INTERNAL "")
-
 set(JSON_Install OFF CACHE INTERNAL "")
 add_subdirectory(json)
 
@@ -19,15 +18,11 @@ file(GLOB SOURCES
         ${PROJECT_SOURCE_DIR}/passes/*.cpp
         ${PROJECT_SOURCE_DIR}/tensorexpr/*.cpp
         ${PROJECT_SOURCE_DIR}/util/*.cpp)
-file(GLOB EXAMPLE ${PROJECT_SOURCE_DIR}/example.cpp)
-file(GLOB NNC_EXAMPLE ${PROJECT_SOURCE_DIR}/nnc_example.cpp)
-file(GLOB NNC_EXAMPLE_DYN_SHAPE ${PROJECT_SOURCE_DIR}/nnc_example_dyn_shape.cpp)
-file(GLOB SIMPLE_LOOP_NNC ${PROJECT_SOURCE_DIR}/simple_loop_nnc.cpp)
 
 add_library(long-tail ${SOURCES})
 target_link_libraries(long-tail ${TORCH_LIBRARIES} TorchVision::TorchVision nlohmann_json::nlohmann_json)
 
-add_executable(example ${EXAMPLE})
+add_executable(example ${PROJECT_SOURCE_DIR}/example.cpp)
 target_link_libraries(example long-tail)
 
 add_executable(test_lowering ${PROJECT_SOURCE_DIR}/testing/test_lowering.cpp)

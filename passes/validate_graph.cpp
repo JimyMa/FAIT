@@ -21,6 +21,7 @@ static void validate(Block *block, std::unordered_set<Value *> &defined) {
   // Traverse the block
   for (auto param : block->inputs()) pushValue(param);
   for (auto node : block->nodes()) {
+    if (node->hasAttribute(attr::Subgraph)) Validate(node->g(attr::Subgraph));
     for (auto input : node->inputs()) checkDefined(input, node);
     for (auto subBlock : node->blocks()) validate(subBlock, defined);
     for (auto output : node->outputs()) pushValue(output);
