@@ -121,6 +121,8 @@ std::vector<ArgValue> GraphBuilder::get_input_expr(Node* node) {
       } else if (val.isDevice()) {
         inputs_expr.emplace_back(ArgNone());
       } else {
+        TORCH_CHECK(false, "Type ", *val.type(),
+                    " not supported for constant value")
         throw unsupported_dtype(val.type()->annotation_str());
       }
     } else if (input_->type()->cast<TensorType>()) {

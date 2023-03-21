@@ -177,8 +177,7 @@ def batched_nms(boxes: torch.Tensor,
                 idxs: torch.Tensor):
     iou_threshold = 0.45
     max_coordinate = boxes.max()
-    offsets = idxs.to(boxes) * (
-        max_coordinate + torch.tensor(1).to(boxes))
+    offsets = idxs.to(boxes) * (max_coordinate + 1)
     boxes_for_nms = boxes + offsets[:, None]
 
     split_thr = 10000
