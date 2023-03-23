@@ -608,7 +608,7 @@ std::vector<CodeGen::CallArg> GraphBuilder::prepareRunArgs(
       auto functor_shape_expr = FunctorShapeMap_.at(input_value);
 
       for (int i = 0; i < degree_; i++) {
-        auto tensor_input = list_input[i].get().toTensor();
+        auto tensor_input = list_input[i].get().toTensor().contiguous();
         runArgs.emplace_back(tensor_input.data_ptr());
       }
 
@@ -667,7 +667,7 @@ std::vector<CodeGen::CallArg> GraphBuilder::prepareRunArgs(
         }
       }
     } else if (input.isTensor()) {
-      auto tensor_input = input.toTensor();
+      auto tensor_input = input.toTensor().contiguous();
       auto functor_shape_expr = FunctorShapeMap_.at(input_value);
 
       std::vector<CodeGen::CallArg> shape_args_per_degree;
