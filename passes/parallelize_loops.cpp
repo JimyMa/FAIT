@@ -377,7 +377,7 @@ void CanonicalizeFusableMaps(const std::shared_ptr<Graph> &graph) {
       groupArgPerm.push_back(0);
     }
 
-    // Reorder loop outputs
+    // Reorder loop inputs
     for (auto param : mapBlock->inputs().slice(1)) {
       TORCH_CHECK(index->uses().size() == 1);
       groupArgPerm.push_back(param->uses().front().offset);
@@ -387,6 +387,15 @@ void CanonicalizeFusableMaps(const std::shared_ptr<Graph> &graph) {
       groupArgPerm.push_back(i);
     group->permuteInputs(groupArgPerm);
     groupBlock->permuteInputs(groupArgPerm);
+
+    // Reorder loop outputs
+    std::vector<size_t> mapRetPerm;
+    for (auto output : group->outputs()) {
+      TORCH_CHECK(output->uses().size() == 1);
+      mapRetPerm.push_back(output->uses().front().offset);
+    }
+    mapBlock->permuteOutputs(mapRetPerm);
+    node->permuteOutputs(mapRetPerm);
 
     return true;
   });
