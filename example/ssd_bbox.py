@@ -49,7 +49,7 @@ class SSDAnchorGenerator(torch.nn.Module):
             indices.insert(1, len(indices))
             base_anchors = torch.index_select(base_anchors, 0,
                                               torch.LongTensor(indices))
-            multi_level_base_anchors.append(base_anchors)
+            multi_level_base_anchors.append(base_anchors.cuda())
         return multi_level_base_anchors
 
     def gen_single_level_base_anchors(self,
@@ -124,7 +124,7 @@ def delta2bbox(rois: torch.Tensor,
     wh_ratio_clip = 0.016
     max_shape = (320, 320)
 
-    num_bboxes, num_classes = deltas.size(0), deltas.size(1) // 4
+    num_classes = deltas.size(1) // 4
     deltas = deltas.reshape(-1, 4)
     means = torch.tensor(means, dtype=deltas.dtype,
                          device=deltas.device).view(1, -1)
@@ -138,8 +138,7 @@ def delta2bbox(rois: torch.Tensor,
     pxy = ((rois_[:, :2] + rois_[:, 2:]) * 0.5)
     pwh = (rois_[:, 2:] - rois_[:, :2])
     dxy_wh = pwh * dxy
-    max_ratio = torch.abs(
-        torch.log(torch.tensor(wh_ratio_clip, device=rois.device)))
+    max_ratio = float(torch.abs(torch.log(torch.tensor(wh_ratio_clip))))
     dwh = dwh.clamp(min=-max_ratio, max=max_ratio)
 
     gxy = pxy + dxy_wh
@@ -149,7 +148,6 @@ def delta2bbox(rois: torch.Tensor,
     bboxes = torch.cat([x1y1, x2y2], dim=-1)
     bboxes[..., 0::2].clamp_(min=0, max=max_shape[1])
     bboxes[..., 1::2].clamp_(min=0, max=max_shape[0])
-    bboxes = bboxes.reshape(num_bboxes, -1)
 
     return bboxes
 
