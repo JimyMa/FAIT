@@ -29,8 +29,14 @@ static ShapeVec computeBcastShape(SHAPE_FUNC_PARAMS) {
       outDim = rShape.at(rIdx);
     else if (rIdx < 0)
       outDim = lShape.at(lIdx);
-    else
+    else {
       outDim = Max::make(lShape.at(lIdx), rShape.at(rIdx), true);
+      outDim =
+          IfThenElse::make(lShape.at(lIdx) == int64_t(0), int64_t(0), outDim);
+      outDim =
+          IfThenElse::make(rShape.at(rIdx) == int64_t(0), int64_t(0), outDim);
+    }
+
     outShape[outRank - 1 - i] = outDim;
   }
   return outShape;
@@ -270,7 +276,8 @@ OperatorSet identicalShapeOps{
     "tssa::SliceSet(Tensor self, Tensor src, int dim=0, SymInt? start=None, "
     "SymInt? end=None, SymInt step=1) -> Tensor",
     "tssa::Assign(Tensor self, Tensor src) -> Tensor",
-};
+    "aten::clamp.Tensor(Tensor self, Tensor? min=None, Tensor? max=None) -> "
+    "Tensor"};
 
 }  // namespace tensorexpr
 }  // namespace jit

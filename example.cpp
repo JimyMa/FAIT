@@ -254,8 +254,9 @@ int main(int argc, const char *argv[]) {
     numSamples = 1;
   }
 
-  Code code(graph, "");
   Stack stack;
+
+  Code code(graph, "");
   stack = getSample(dataset, 0);
   LONG_TAIL_LOG_INFO("RUN LONG TAIL BEGIN");
   torch::jit::InterpreterState(code).run(stack);
