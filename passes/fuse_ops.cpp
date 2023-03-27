@@ -23,6 +23,8 @@ OperatorSet fusableOps{
     "device=None, bool requires_grad=False) -> Tensor",
     "aten::tensor.int(int t, *, ScalarType? dtype=None, Device? device=None, "
     "bool requires_grad=False) -> Tensor",
+    "aten::contiguous(Tensor(a) self, *, MemoryFormat memory_format=0) -> "
+    "Tensor(a)",
     "aten::to.device(Tensor(a) self, Device device, ScalarType dtype, bool "
     "non_blocking=False, bool copy=False, MemoryFormat? memory_format=None) -> "
     "Tensor(a)",
@@ -33,6 +35,8 @@ OperatorSet fusableOps{
     "Tensor",
     "aten::exp(Tensor self) -> Tensor",
     "aten::sigmoid(Tensor self) -> Tensor",
+    "aten::tril(Tensor self, int diagonal=0) -> Tensor",
+    "aten::triu(Tensor self, int diagonal=0) -> Tensor",
     "aten::clamp(Tensor self, Scalar? min=None, Scalar? max=None) -> Tensor",
     "aten::clamp.Tensor(Tensor self, Tensor? min=None, Tensor? max=None) -> "
     "Tensor",
@@ -44,18 +48,25 @@ OperatorSet fusableOps{
     "aten::mul.Scalar(Tensor self, Scalar other) -> Tensor",
     "aten::div.Tensor(Tensor self, Tensor other) -> Tensor",
     "aten::div.Scalar(Tensor self, Scalar other) -> Tensor",
+    "aten::minimum(Tensor self, Tensor other) -> Tensor",
+    "aten::maximum(Tensor self, Tensor other) -> Tensor",
+    "aten::__and__.Tensor(Tensor self, Tensor other) -> Tensor",
+    "aten::__and__.Scalar(Tensor self, Scalar other) -> Tensor",
     "aten::eq.Tensor(Tensor self, Tensor other) -> Tensor",
     "aten::eq.Scalar(Tensor self, Scalar other) -> Tensor",
     "aten::ne.Tensor(Tensor self, Tensor other) -> Tensor",
     "aten::ne.Scalar(Tensor self, Scalar other) -> Tensor",
     "aten::lt.Tensor(Tensor self, Tensor other) -> Tensor",
     "aten::lt.Scalar(Tensor self, Scalar other) -> Tensor",
+    "aten::le.Tensor(Tensor self, Tensor other) -> Tensor",
+    "aten::le.Scalar(Tensor self, Scalar other) -> Tensor",
     "aten::gt.Tensor(Tensor self, Tensor other) -> Tensor",
     "aten::gt.Scalar(Tensor self, Scalar other) -> Tensor",
     "aten::ge.Tensor(Tensor self, Tensor other) -> Tensor",
     "aten::ge.Scalar(Tensor self, Scalar other) -> Tensor",
-    "aten::minimum(Tensor self, Tensor other) -> Tensor",
-    "aten::maximum(Tensor self, Tensor other) -> Tensor",
+    "aten::max.dim(Tensor self, int dim, bool keepdim=False) -> (Tensor "
+    "values, Tensor indices)",
+    "aten::softmax.int(Tensor self, int dim, ScalarType? dtype=None) -> Tensor",
     "aten::select.int(Tensor(a) self, int dim, int index) -> Tensor(a)",
     "aten::slice.Tensor(Tensor(a) self, int dim=0, SymInt? start=None, SymInt? "
     "end=None, SymInt step=1) -> Tensor(a)",
@@ -79,15 +90,17 @@ static std::unordered_set<Symbol> fusableNoOpSymbols{
     tssa::Update, prim::ListConstruct, prim::ListUnpack};
 
 static std::unordered_set<Symbol> workingSymbols{
-    // Tensor creation
-    aten::tensor, aten::arange, aten::to, aten::zeros,
+    // Tensor creation/conversion
+    aten::tensor, aten::arange, aten::zeros, aten::to, aten::contiguous,
     // Elementwise
-    aten::exp, aten::log, aten::sin, aten::cos, aten::sqrt, aten::sigmoid,
-    aten::clamp,
+    aten::exp, aten::sigmoid, aten::clamp, aten::tril, aten::triu,
     // Binary
-    aten::add, aten::sub, aten::mul, aten::div, aten::minimum, aten::maximum,
+    aten::add, aten::sub, aten::mul, aten::div, aten::__and__, aten::minimum,
+    aten::maximum,
     // Comparison
     aten::eq, aten::ne, aten::lt, aten::le, aten::gt, aten::ge,
+    // Reduction
+    aten::max, aten::softmax,
     // Copy
     aten::repeat, aten::cat, aten::stack,
     // TensorSSA
@@ -97,6 +110,10 @@ static std::unordered_map<Symbol, bool (*)(Node *node)> fusabilityCheckers{
     {aten::__getitem__,
      [](Node *node) {
        return node->owningBlock() == node->input(0)->node()->owningBlock();
+     }},
+    {aten::max,
+     [](Node *node) {
+       return node->outputs().size() == 1 || !node->output(1)->hasUses();
      }},
     {aten::cat,
      [](Node *node) {

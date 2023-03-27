@@ -60,6 +60,7 @@ extern OperatorMap<c10::SymbolicShape (*)(Node *, ValueTypeMap &)> shapeFuncs;
 extern OperatorMap<c10::ScalarType (*)(Node *, ValueTypeMap &)> dtypeFuncs;
 extern OperatorMap<c10::Device (*)(Node *, ValueTypeMap &)> deviceFuncs;
 
+extern OperatorMap<void (*)(Node *, ValueTypeMap &)> specialShapeHandlers;
 extern OperatorMap<void (*)(Node *, ValueTypeMap &)> specialDtypeHandlers;
 
 void initTensorTypeFuncs();

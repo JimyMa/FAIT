@@ -179,9 +179,11 @@ static OperatorSet bcastOps{
     "aten::div.Tensor(Tensor self, Tensor other) -> Tensor",
     "aten::minimum(Tensor self, Tensor other) -> Tensor",
     "aten::maximum(Tensor self, Tensor other) -> Tensor",
+    "aten::__and__.Tensor(Tensor self, Tensor other) -> Tensor",
     "aten::eq.Tensor(Tensor self, Tensor other) -> Tensor",
     "aten::ne.Tensor(Tensor self, Tensor other) -> Tensor",
     "aten::lt.Tensor(Tensor self, Tensor other) -> Tensor",
+    "aten::le.Tensor(Tensor self, Tensor other) -> Tensor",
     "aten::gt.Tensor(Tensor self, Tensor other) -> Tensor",
     "aten::ge.Tensor(Tensor self, Tensor other) -> Tensor",
 };
@@ -209,28 +211,46 @@ static ShapeDim bcastDim(const ShapeDim &lhs, const ShapeDim &rhs) {
   return c10::nullopt;
 }
 
-static c10::SymbolicShape inferShapeBcastOps(INFER_PARAMS) {
-  // Process input shapes
-  auto lShape = getShape(node->input(0)->type()),
-       rShape = getShape(node->input(1)->type());
-  if (!lShape || !rShape) return {};
-  int64_t lRank = lShape->size(), rRank = rShape->size();
-
-  // Infer output shape
+static ShapeVec bcastShape(const ShapeVec &lhs, const ShapeVec &rhs) {
+  int64_t lRank = lhs.size(), rRank = rhs.size();
   auto outRank = std::max(lRank, rRank);
   ShapeVec outShape(size_t(outRank), c10::nullopt);
   for (auto i : c10::irange(outRank)) {
     auto lIdx = lRank - 1 - i, rIdx = rRank - 1 - i;
     ShapeDim outDim;
     if (lIdx < 0)
-      outDim = rShape->at(rIdx);
+      outDim = rhs.at(rIdx);
     else if (rIdx < 0)
-      outDim = lShape->at(lIdx);
+      outDim = lhs.at(lIdx);
     else
-      outDim = bcastDim(lShape->at(lIdx), rShape->at(rIdx));
+      outDim = bcastDim(lhs.at(lIdx), rhs.at(rIdx));
     outShape[outRank - 1 - i] = outDim;
   }
+  return std::move(outShape);
+}
 
+static c10::SymbolicShape inferShapeBcastOps(INFER_PARAMS) {
+  auto lShape = getShape(node->input(0)->type()),
+       rShape = getShape(node->input(1)->type());
+  if (!lShape || !rShape) return {};
+  return bcastShape(*lShape, *rShape);
+}
+
+static OperatorSet matmulOp{
+    "aten::matmul(Tensor self, Tensor other) -> Tensor",
+};
+
+static c10::SymbolicShape inferShapeMatmulOp(INFER_PARAMS) {
+  auto lShape = getShape(node->input(0)->type()),
+       rShape = getShape(node->input(1)->type());
+  if (!lShape || !rShape) return {};
+  TORCH_CHECK(lShape->size() >= 2);
+  TORCH_CHECK(rShape->size() >= 2);
+  std::vector<ShapeDim> lBatchDims(lShape->begin(), lShape->end() - 2),
+      rBatchDims(rShape->begin(), rShape->end() - 2);
+  auto outShape = bcastShape(lBatchDims, rBatchDims);
+  outShape.push_back(*(lShape->end() - 2));
+  outShape.push_back(rShape->back());
   return outShape;
 }
 
@@ -284,21 +304,14 @@ static c10::SymbolicShape inferShapeSliceOp(INFER_PARAMS) {
   auto dimSize = inShape->at(dim);
   auto start = refineDimSizeIndex(node->input(2), 0);
   auto end = refineDimSizeIndex(node->input(3), dimSize);
-  if (dimSize) {
-    if (start && *start < 0) *start += *dimSize;
-    if (end) {
-      if (*end < 0)
-        *end += *dimSize;
-      else
-        *end = std::min(*end, *dimSize);
-    }
-  }
   auto step = refineDimSizeIndex(node->input(4), 1);
   auto outDimSize = tryApply<int64_t>(
-      [](int64_t start, int64_t end, int64_t step) {
-        return (end - start - 1) / step + 1;
+      [](int64_t dimSize, int64_t start, int64_t end, int64_t step) {
+        if (start < 0) start += dimSize;
+        if (end < 0) end += dimSize;
+        return (std::min(end, dimSize) - start - 1) / step + 1;
       },
-      start, end, step);
+      dimSize, start, end, step);
 
   // Compute output shape
   ShapeVec outShape;
@@ -391,6 +404,23 @@ static c10::SymbolicShape inferShapePermuteOp(INFER_PARAMS) {
   return outShape;
 }
 
+static OperatorSet transposeOp{
+    "aten::transpose.int(Tensor(a) self, int dim0, int dim1) -> Tensor(a)",
+};
+
+static c10::SymbolicShape inferShapeTransposeOps(INFER_PARAMS) {
+  auto selfShape = getShape(node->input(0)->type());
+  if (!selfShape) return {};
+  auto rank = selfShape->size();
+  auto dim0 = *constant_as<int64_t>(node->input(1));
+  if (dim0 < 0) dim0 += rank;
+  auto dim1 = *constant_as<int64_t>(node->input(2));
+  if (dim1 < 0) dim1 += rank;
+  auto outShape = *selfShape;
+  std::swap(outShape[dim0], outShape[dim1]);
+  return outShape;
+}
+
 static OperatorSet expandOp{
     "aten::expand(Tensor(a) self, SymInt[] size, *, bool implicit=False) -> "
     "Tensor(a)",
@@ -429,6 +459,18 @@ static c10::SymbolicShape inferShapeExpandOp(INFER_PARAMS) {
   }
 
   return outShape;
+}
+
+static OperatorSet asOps{
+    "aten::expand_as(Tensor(a) self, Tensor other) -> Tensor(a)",
+};
+
+static c10::SymbolicShape inferShapeAsOps(INFER_PARAMS) {
+  auto shape = getShape(node->input(1)->type());
+  if (shape)
+    return *shape;
+  else
+    return {};
 }
 
 static OperatorSet repeatOp{
@@ -590,7 +632,7 @@ static c10::SymbolicShape inferShapeIndexOp(INFER_PARAMS) {
     } break;
 
     default: {
-      TORCH_CHECK(false);
+      TORCH_CHECK(false, "Indices data type ", *indexDtype, " not supported");
     }
   }
   return *selfShape;
@@ -614,12 +656,16 @@ static OperatorSet sameShapeOps{
     "bool copy=False, MemoryFormat? memory_format=None) -> Tensor(a)",
     "aten::to.other(Tensor(a) self, Tensor other, bool non_blocking=False, "
     "bool copy=False, MemoryFormat? memory_format=None) -> Tensor(a)",
+    "aten::contiguous(Tensor(a) self, *, MemoryFormat memory_format=0) -> "
+    "Tensor(a)",
     "aten::exp(Tensor self) -> Tensor",
     "aten::log(Tensor self) -> Tensor",
     "aten::sin(Tensor self) -> Tensor",
     "aten::cos(Tensor self) -> Tensor",
     "aten::sqrt(Tensor self) -> Tensor",
     "aten::sigmoid(Tensor self) -> Tensor",
+    "aten::tril(Tensor self, int diagonal=0) -> Tensor",
+    "aten::triu(Tensor self, int diagonal=0) -> Tensor",
     "aten::clamp(Tensor self, Scalar? min=None, Scalar? max=None) -> Tensor",
     "aten::clamp.Tensor(Tensor self, Tensor? min=None, Tensor? max=None) -> "
     "Tensor",
@@ -627,9 +673,11 @@ static OperatorSet sameShapeOps{
     "aten::sub.Scalar(Tensor self, Scalar other, Scalar alpha=1) -> Tensor",
     "aten::mul.Scalar(Tensor self, Scalar other) -> Tensor",
     "aten::div.Scalar(Tensor self, Scalar other) -> Tensor",
+    "aten::__and__.Scalar(Tensor self, Scalar other) -> Tensor",
     "aten::eq.Scalar(Tensor self, Scalar other) -> Tensor",
     "aten::ne.Scalar(Tensor self, Scalar other) -> Tensor",
     "aten::lt.Scalar(Tensor self, Scalar other) -> Tensor",
+    "aten::le.Scalar(Tensor self, Scalar other) -> Tensor",
     "aten::gt.Scalar(Tensor self, Scalar other) -> Tensor",
     "aten::ge.Scalar(Tensor self, Scalar other) -> Tensor",
     "aten::softmax.int(Tensor self, int dim, ScalarType? dtype=None) -> Tensor",
@@ -665,6 +713,8 @@ static OperatorSet boolOps{
     "aten::eq.Scalar(Tensor self, Scalar other) -> Tensor",
     "aten::ne.Tensor(Tensor self, Tensor other) -> Tensor",
     "aten::ne.Scalar(Tensor self, Scalar other) -> Tensor",
+    "aten::le.Tensor(Tensor self, Tensor other) -> Tensor",
+    "aten::le.Scalar(Tensor self, Scalar other) -> Tensor",
     "aten::lt.Tensor(Tensor self, Tensor other) -> Tensor",
     "aten::lt.Scalar(Tensor self, Scalar other) -> Tensor",
     "aten::gt.Tensor(Tensor self, Tensor other) -> Tensor",
@@ -679,12 +729,80 @@ static OperatorSet longOps{
     "Tensor",
 };
 
-static void handleDtypeSort(INFER_PARAMS) {
+static OperatorSet minMaxOps{
+    "aten::max.dim(Tensor self, int dim, bool keepdim=False) -> (Tensor "
+    "values, Tensor indices)",
+    "aten::min.dim(Tensor self, int dim, bool keepdim=False) -> (Tensor "
+    "values, Tensor indices)",
+};
+
+static void handleShapeMinMax(INFER_PARAMS) {
+  // Process inputs
+  auto selfShape = getShape(node->input(0)->type());
+  if (!selfShape) return;
+  auto rank = selfShape->size();
+  auto dim = *constant_as<int64_t>(node->input(1));
+  if (dim < 0) dim += rank;
+  auto keepdim = *constant_as<bool>(node->input(2));
+
+  // Compute output shape
+  auto outShape = *selfShape;
+  if (keepdim)
+    outShape[dim] = 1;
+  else
+    outShape.erase(outShape.begin() + dim);
+  setShape(node->output(0), outShape);
+  setShape(node->output(1), outShape);
+}
+
+static OperatorSet sortOp{
+    "aten::sort(Tensor self, int dim=-1, bool descending=False) -> (Tensor "
+    "values, Tensor indices)",
+};
+
+static void handleShapeSort(INFER_PARAMS) {
+  auto shape = getShape(node->input(0)->type());
+  if (!shape) return;
+  setShape(node->output(0), *shape);
+  setShape(node->output(1), *shape);
+}
+
+static OperatorSet topkOp{
+    "aten::topk(Tensor self, int k, int dim=-1, bool largest=True, bool "
+    "sorted=True) -> (Tensor values, Tensor indices)",
+};
+
+static void handleShapeTopk(INFER_PARAMS) {
+  // Process inputs
+  auto selfShape = getShape(node->input(0)->type());
+  if (!selfShape) return;
+  auto rank = selfShape->size();
+  auto k = constant_as<int64_t>(node->input(1));
+  auto dim = *constant_as<int64_t>(node->input(2));
+  if (dim < 0) dim += rank;
+
+  // Compute output shape
+  auto outShape = *selfShape;
+  outShape[dim] = k;
+  setShape(node->output(0), outShape);
+  setShape(node->output(1), outShape);
+}
+
+static OperatorSet indicesOps{
+    "aten::max.dim(Tensor self, int dim, bool keepdim=False) -> (Tensor "
+    "values, Tensor indices)",
+    "aten::min.dim(Tensor self, int dim, bool keepdim=False) -> (Tensor "
+    "values, Tensor indices)",
+    "aten::sort(Tensor self, int dim=-1, bool descending=False) -> (Tensor "
+    "values, Tensor indices)",
+    "aten::topk(Tensor self, int k, int dim=-1, bool largest=True, bool "
+    "sorted=True) -> (Tensor values, Tensor indices)",
+};
+
+static void handleDtypeIndices(INFER_PARAMS) {
   auto dtype = *node->input(0)->type()->cast<TensorType>()->scalarType();
-  node->output(0)->setType(
-      node->output(0)->type()->cast<TensorType>()->withScalarType(dtype));
-  node->output(1)->setType(
-      node->output(1)->type()->cast<TensorType>()->withScalarType(c10::kLong));
+  setDtype(node->output(0), dtype);
+  setDtype(node->output(1), c10::kLong);
 }
 
 static std::initializer_list<
@@ -693,13 +811,16 @@ static std::initializer_list<
         {tensorOps, inferShapeTensorOps},
         {fillOps, inferShapeFillOps},
         {bcastOps, inferShapeBcastOps},
+        {matmulOp, inferShapeMatmulOp},
         {selectOp, inferShapeSelectOp},
         {sliceOp, inferShapeSliceOp},
         {squeezeOp, inferShapeSqueezeOp},
         {unsqueezeOp, inferShapeUnsqueezeOp},
         {reshapeOps, inferShapeReshapeOps},
         {permuteOp, inferShapePermuteOp},
+        {transposeOp, inferShapeTransposeOps},
         {expandOp, inferShapeExpandOp},
+        {asOps, inferShapeAsOps},
         {repeatOp, inferShapeRepeatOp},
         {catOp, inferShapeCatOp},
         {stackOp, inferShapeStackOp},
@@ -728,16 +849,22 @@ static std::initializer_list<
     };
 
 static std::initializer_list<std::pair<OperatorSet, void (*)(INFER_PARAMS)>>
+    specialShapeHandlerInit{
+        {minMaxOps, handleShapeMinMax},
+        {sortOp, handleShapeSort},
+        {topkOp, handleShapeTopk},
+    };
+
+static std::initializer_list<std::pair<OperatorSet, void (*)(INFER_PARAMS)>>
     specialDtypeHandlerInit{
-        {{"aten::sort(Tensor self, int dim=-1, bool descending=False) -> "
-          "(Tensor values, Tensor indices)"},
-         handleDtypeSort},
+        {indicesOps, handleDtypeIndices},
     };
 
 static bool initialized = false;
 OperatorMap<c10::SymbolicShape (*)(INFER_PARAMS)> shapeFuncs;
 OperatorMap<c10::ScalarType (*)(INFER_PARAMS)> dtypeFuncs;
 OperatorMap<c10::Device (*)(INFER_PARAMS)> deviceFuncs;
+OperatorMap<void (*)(Node *, ValueTypeMap &)> specialShapeHandlers;
 OperatorMap<void (*)(Node *, ValueTypeMap &)> specialDtypeHandlers;
 
 void initTensorTypeFuncs() {
@@ -745,6 +872,8 @@ void initTensorTypeFuncs() {
   for (auto &pair : shapeFuncInit) shapeFuncs.insert(pair.first, pair.second);
   for (auto &pair : dtypeFuncInit) dtypeFuncs.insert(pair.first, pair.second);
   for (auto &pair : deviceFuncInit) deviceFuncs.insert(pair.first, pair.second);
+  for (auto &pair : specialShapeHandlerInit)
+    specialShapeHandlers.insert(pair.first, pair.second);
   for (auto &pair : specialDtypeHandlerInit)
     specialDtypeHandlers.insert(pair.first, pair.second);
   initialized = true;

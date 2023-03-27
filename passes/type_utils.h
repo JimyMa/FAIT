@@ -36,6 +36,14 @@ inline c10::SymbolicShape getRankedShape(size_t rank) {
   return c10::optional<size_t>(rank);
 }
 
+inline void setShape(Value *value, const ShapeVec &shape) {
+  value->setType(value->type()->cast<TensorType>()->withSymbolicShapes(shape));
+}
+
+inline void setDtype(Value *value, c10::ScalarType dtype) {
+  value->setType(value->type()->cast<TensorType>()->withScalarType(dtype));
+}
+
 inline c10::optional<size_t> getListLen(Value *list,
                                         ValueTypeMap &refinedTypes) {
   auto listTy = getRefinedType(list, refinedTypes);

@@ -46,6 +46,16 @@ Node *rewriteNew(REWRITE_PARAMS) {
   return remove(node);
 }
 
+Node *rewriteT(REWRITE_PARAMS) {
+  auto self = node->input(0);
+  auto zero = graph->insertConstant(int64_t(0));
+  auto one = graph->insertConstant(int64_t(1));
+  auto newOut = graph->insert(aten::transpose, {self, zero, one}, {},
+                              node->sourceRange());
+  node->output(0)->replaceAllUsesWith(newOut);
+  return remove(node);
+}
+
 Node *rewriteToDtype(REWRITE_PARAMS) {
   auto self = node->input(0), dtype = node->input(1);
   auto device = graph->insert(prim::device, {self}, {});
@@ -94,6 +104,7 @@ OperatorMap<Node *(*)(REWRITE_PARAMS)> rewriteFuncs{
     {"aten::slice.Tensor(Tensor(a) self, int dim=0, SymInt? start=None, "
      "SymInt? end=None, SymInt step=1) -> Tensor(a)",
      rewriteSlice},
+    {"aten::t(Tensor(a) self) -> Tensor(a)", rewriteT},
     {"aten::to.dtype(Tensor(a) self, ScalarType dtype, bool "
      "non_blocking=False, "
      "bool copy=False, MemoryFormat? memory_format=None) -> Tensor(a)",

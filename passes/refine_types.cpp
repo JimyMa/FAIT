@@ -488,6 +488,7 @@ static void inferShapeIn(Block *block, ValueTypeMap &refinedTypes) {
       } break;
 
       default: {
+        // Propagate types
         if (symbolPropagators.count(kind)) {
           symbolPropagators[kind](node, refinedTypes, inferShapeIn);
           continue;
@@ -497,9 +498,16 @@ static void inferShapeIn(Block *block, ValueTypeMap &refinedTypes) {
         auto outputs = node->outputs();
         if (std::none_of(outputs.begin(), outputs.end(), isTensor)) continue;
 
-        // Use per-operator shape function to infer shape
+        // Use special shape handlers
         auto op = node->maybeOperator();
-        if (!op || !shapeFuncs.contains(*op)) continue;
+        if (!op) continue;
+        if (specialShapeHandlers.contains(*op)) {
+          (*specialShapeHandlers.find(*op))(node, refinedTypes);
+          continue;
+        }
+
+        // Use per-operator shape function to infer shape
+        if (!shapeFuncs.contains(*op)) continue;
         auto shape = (*shapeFuncs.find(*op))(node, refinedTypes);
         for (auto output : outputs) {
           if (!isTensor(output)) continue;
