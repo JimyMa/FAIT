@@ -481,9 +481,8 @@ void GraphBuilder::compile() {
 
   {
     LONG_TAIL_LOG_INFO("after loop binding: ");
-    // LONG_TAIL_LOG_INFO(to_string(stmt_));
+    LONG_TAIL_LOG_INFO(to_string(stmt_));
   }
-  // std::cout << "1" << std::endl;
   for (auto functor_dim : FunctorShapeVarArgs) {
     std::vector<VarHandle> par_dims;
     for (int i = 0; i < degree_; i++) {
@@ -550,7 +549,6 @@ void GraphBuilder::compile() {
   }
   for (auto output : graph_->outputs()) {
     auto functor_buf = exprs_[output].AsNode<Buf>();
-
     std::vector<BufHandle> par_bufs;
     for (int i = 0; i < degree_; i++) {
       std::vector<ExprHandle> par_dims;
@@ -559,6 +557,7 @@ void GraphBuilder::compile() {
         // if (!functor_dim) {
         auto cloner = IRCloner();
         auto dim_expr = functor_buf->dim(dim_idx)->accept_mutator(&cloner);
+
         // std::cout << "dim expr0: " << to_string(dim_expr) << std::endl;
         par_dims.push_back(ExprHandle(dim_expr));
         // } else {
@@ -577,78 +576,16 @@ void GraphBuilder::compile() {
     }
     StoreBufParallelFunctorMap[exprs_[output].AsNode<Buf>()] = par_bufs;
   }
-  // std::cout << to_string(stmt_) << std::endl;
+
   auto stmt_red_ = FunctorParallization::Parallel_functor(
       stmt_, degree_, new_loop_axis.node(), LoadBufParallelFunctorMap,
       LoadVarParallelFunctorMap, StoreBufParallelFunctorMap,
       ShapeVarParallelFunctorMap);
-
-  // std::cout << to_string(stmt_) << std::endl;
-  // std::cout << to_string(stmt_red_) << std::endl;
-
-  for (auto output : graph_->outputs()) {
-    auto functor_buf = exprs_[output].AsNode<Buf>();
-
-    std::vector<BufHandle> par_bufs;
-    for (int i = 0; i < degree_; i++) {
-      std::vector<ExprHandle> par_dims;
-      for (int dim_idx = 0; dim_idx < functor_buf->dims().size(); dim_idx++) {
-        auto functor_dim = ExprHandle(functor_buf->dim(dim_idx)).AsNode<Var>();
-        // if (!functor_dim) {
-        auto dim_expr = ExprHandle(functor_buf->dim(dim_idx));
-        // std::cout << dim_expr.node() << std::endl;
-        // std::cout << "dim expr00: " << to_string(dim_expr.node()) <<
-        // std::endl;
-        par_dims.push_back(dim_expr);
-        // } else {
-        //   auto dim_expr = ShapeVarParallelFunctorMap[functor_dim][i];
-        //   std::cout << "dim expr11: " << to_string(dim_expr.node())
-        //             << std::endl;
-        //   par_dims.push_back(ExprHandle(dim_expr));
-        // }
-      }
-
-      auto par_buf = BufHandle(set_hash_name(functor_buf->name_hint()),
-                               par_dims, functor_buf->dtype());
-      par_bufs.push_back(par_buf);
-    }
-  }
-
-  // std::cout << "stmt_red_" << std::endl;
-  // std::cout << to_string(stmt_red_) << std::endl;
-  // std::cout << "stmt_" << std::endl;
-  // std::cout << to_string(stmt_) << std::endl;
-
-  // std::cout << "2" << std::endl;
-  // stmt_ = FunctorParallization::parallel_functor_load(
-  //     stmt_, degree_, new_loop_axis.node(), LoadBufParallelFunctorMap,
-  //     LoadVarParallelFunctorMap);
-  // std::cout << "3" << std::endl;
-  // l.simplify();
-  // std::cout << "4" << std::endl;
-
-  // std::cout << "5" << std::endl;
-  // stmt_ = FunctorParallization::parallel_functor_store(
-  //     stmt_, degree_, new_loop_axis.node(), StoreBufParallelFunctorMap);
-  // l.simplify();
-  // std::cout << "6" << std::endl;
-  // stmt_ = FunctorParallization::parallel_functor_shape(
-  //     stmt_, degree_, new_loop_axis.node(), ShapeVarParallelFunctorMap);
-  // std::cout << "7" << std::endl;
-  // l.simplify();
-  // std::cout << "8" << std::endl;
+  l.simplify();
   {
     LONG_TAIL_LOG_INFO("after parallization: ");
     LONG_TAIL_LOG_INFO(to_string(stmt_));
   }
-
-  // ParallelForEqualSubstitution::run(stmt_);
-  l.simplify();
-  {
-    LONG_TAIL_LOG_INFO("after parallel for equal substitution: ");
-    LONG_TAIL_LOG_INFO(to_string(stmt_));
-  }
-
   auto to_buf_ptr = [](std::vector<BufHandle> buf_list) {
     std::unordered_set<BufPtr> buf_ptr_list;
     for (auto buf : buf_list) {
@@ -656,17 +593,36 @@ void GraphBuilder::compile() {
     }
     return buf_ptr_list;
   };
-
   LoopNest pl(stmt_, to_buf_ptr(FunctorOutputBufArgs));
-
   pl.prepareForCodegen();
-  // std::cout << "9" << std::endl;
   pl.simplify();
-  // std::cout << "10" << std::endl;
   {
     LONG_TAIL_LOG_INFO("after pre codegen: ");
     LONG_TAIL_LOG_INFO(to_string(stmt_));
   }
+
+  // stmt_ = FunctorParallization::parallel_functor_load(
+  //     stmt_, degree_, new_loop_axis.node(), LoadBufParallelFunctorMap,
+  //     LoadVarParallelFunctorMap);
+  // l.simplify();
+  // stmt_ = FunctorParallization::parallel_functor_store(
+  //     stmt_, degree_, new_loop_axis.node(), StoreBufParallelFunctorMap);
+  // l.simplify();
+  // stmt_ = FunctorParallization::parallel_functor_shape(
+  //     stmt_, degree_, new_loop_axis.node(), ShapeVarParallelFunctorMap);
+  // l.simplify();
+  // ParallelForEqualSubstitution::run(stmt_);
+  // {
+  //   LONG_TAIL_LOG_INFO("after parallization: ");
+  //   LONG_TAIL_LOG_INFO(to_string(stmt_));
+  // }
+  // l.prepareForCodegen();
+  // l.simplify();
+  // IRSimplifier::simplify(stmt_);
+  // {
+  //   LONG_TAIL_LOG_INFO("after pre codegen: ");
+  //   LONG_TAIL_LOG_INFO(to_string(stmt_));
+  // }
 
   // input
   // buf
@@ -734,7 +690,8 @@ std::vector<CodeGen::CallArg> GraphBuilder::prepareRunArgs(
 
   std::vector<CodeGen::CallArg> shapeRunArgs;
   std::unordered_map<VarPtr, int64_t> dim_map;
-  for (int input_idx = 0; input_idx < inputs.size(); input_idx++) {
+  auto input_size = inputs.size();
+  for (int input_idx = 0; input_idx < input_size; input_idx++) {
     Value* input_value = graph_->inputs()[input_idx];
     // std::cout << "input_value: " << input_value->debugName() << std::endl;
     auto input = inputs[input_idx];
@@ -824,8 +781,8 @@ std::vector<CodeGen::CallArg> GraphBuilder::prepareRunArgs(
       std::vector<CodeGen::CallArg> shape_args_per_degree;
       runArgs.emplace_back(tensor_input.data_ptr());
       auto tensor_type = refined_types_[input_idx]->cast<TensorType>();
-      for (int64_t dim_idx = 0; dim_idx < tensor_type->sizes().size();
-           dim_idx++) {
+      auto tensor_type_dim_size = tensor_type->sizes().size();
+      for (int64_t dim_idx = 0; dim_idx < tensor_type_dim_size; dim_idx++) {
         if (!tensor_type->symbolic_sizes()[dim_idx].is_static()) {
           VarPtr functor_shape_var = functor_shape_expr[dim_idx].AsNode<Var>();
           dim_map[ShapeVarParallelFunctorMap.at(functor_shape_var)[0].node()] =
@@ -846,7 +803,8 @@ std::vector<CodeGen::CallArg> GraphBuilder::prepareRunArgs(
 
   LONG_TAIL_LOG_INFO("preparing input and shape call args DONE!!!");
 
-  for (int i = 0; i < graph_->outputs().size(); i++) {
+  auto graph_output_size = graph_->outputs().size();
+  for (int i = 0; i < graph_output_size; i++) {
     auto output_value = graph_->outputs()[i];
     // std::cout << "output value: " << output_value->debugName() << std::endl;
     std::vector<at::Tensor> list_output;

@@ -85,7 +85,7 @@ static ShapeVec computeSliceShape(SHAPE_FUNC_PARAMS) {
 
   // Shape
   auto result = src.dims();
-  result[dim] = (end - start) / step;
+  result[dim] = (end - start + step - int64_t(1)) / step;
 
   return result;
 }

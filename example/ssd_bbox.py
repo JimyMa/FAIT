@@ -48,7 +48,7 @@ class SSDAnchorGenerator(torch.nn.Module):
             indices = list(range(len(self.ratios[i])))
             indices.insert(1, len(indices))
             base_anchors = torch.index_select(base_anchors, 0,
-                                              torch.LongTensor(indices))
+                                              torch.LongTensor(indices).cuda())
             multi_level_base_anchors.append(base_anchors.cuda())
         return multi_level_base_anchors
 
@@ -247,6 +247,7 @@ class SSDBBox(torch.nn.Module):
             print([a.shape for a in cls_score_list])
             print([a.shape for a in bbox_pred_list])
             print([a.shape for a in mlvl_priors])
+            print(bbox_pred_list[4])
             results = self._get_bboxes_single(
                 cls_score_list, bbox_pred_list, mlvl_priors)
             result_list.append(results)
