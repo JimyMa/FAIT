@@ -17,6 +17,8 @@
 #include "fuser/solve_update.h"
 #include "fuser/tssa_set_ops.h"
 #include "passes/tensor_ssa.h"
+#include "tensorexpr/cuda_codegen_tssa.h"
+#include "tensorexpr/evaluate_dim.h"
 // #include <torch/csrc/jit/ir/ir.h>
 // #include <torch/csrc/jit/runtime/interpreter.h>
 // #include <torch/csrc/jit/tensorexpr/analysis.h>
@@ -89,6 +91,8 @@ class GraphBuilder {
   std::vector<TypePtr> refined_types_;
   std::vector<int64_t> is_parallelled_args_;
 
+  std::shared_ptr<torch::jit::tensorexpr::Block> block_;
+
   std::map<Value*, std::vector<ExprHandle>> FunctorShapeMap_;
   std::map<const torch::jit::Value*, BufPtr> bufs_;
   std::map<const torch::jit::Value*, VarPtr> vars_;
@@ -112,6 +116,8 @@ class GraphBuilder {
   std::unordered_map<VarPtr, std::vector<VarHandle>> ShapeVarParallelFunctorMap;
   std::unordered_map<BufPtr, std::vector<BufHandle>> StoreBufParallelFunctorMap;
 
+  std::unordered_map<ExprPtr, DimExprEvaluator> dim_evaluators_;
+
   int64_t nInputs_ = 0;
   int64_t nOutputs_ = 0;
   at::Device device_ = at::Device(at::kCUDA, at::cuda::current_device());
@@ -121,7 +127,7 @@ class GraphBuilder {
 
   std::shared_ptr<Graph> graph_;
 
-  std::unique_ptr<CodeGen> codegen_;
+  std::unique_ptr<CudaCodeGenTssa> codegen_;
 };
 
 }  // namespace jit

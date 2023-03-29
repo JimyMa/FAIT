@@ -5,6 +5,7 @@
 #include "tensorexpr/functor_parallization.h"
 
 #include <torch/csrc/jit/tensorexpr/fwd_decls.h>
+#include <torch/csrc/jit/tensorexpr/ir_cloner.h>
 
 using namespace torch::jit::tensorexpr;
 
@@ -20,14 +21,14 @@ ExprPtr ParallelFunctorInputArgsMutator::expr_replace(
         ExprHandleVectorToExprVector(parallel_args[0].dims()));
     return load_op;
   }
-  LoadPtr load_op_0 = static_to<Load>(
+  LoadPtr load_op_0 =
       Load::make(parallel_args[0],
                  ExprVectorToExprHandleVector(functor_arg->indices()))
-          .node());
-  LoadPtr load_op_1 = static_to<Load>(
+          .AsNode<Load>();
+  LoadPtr load_op_1 =
       Load::make(parallel_args[1],
                  ExprVectorToExprHandleVector(functor_arg->indices()))
-          .node());
+          .AsNode<Load>();
   load_op_0->buf()->set_dims(
       ExprHandleVectorToExprVector(parallel_args[0].dims()));
   load_op_1->buf()->set_dims(
@@ -178,4 +179,90 @@ StmtPtr FunctorParallization::parallel_functor_shape(
   ParallelFunctorShapeDimsMutator mutator(degree, iter_var, args_map);
   s->accept_mutator(&mutator);
   return s;
+}
+
+ExprPtr FunctorParallizationShapeMutator::mutate(VarPtr v) {
+  if (dims_map_.count(v)) {
+    return dims_map_[v][idx_].node();
+  }
+  return v;
+}
+
+ExprPtr FunctorParallizationMutator::mutate(VarPtr v) {
+  if (var_args_map_.count(v)) {
+    return var_args_map_[v][idx_].node();
+  }
+  return v;
+}
+
+ExprPtr FunctorParallizationMutator::mutate(LoadPtr v) {
+  if (buf_args_map_.count(v->buf())) {
+    auto parallel_buf = buf_args_map_[v->buf()];
+    LoadPtr load_op =
+        static_to<Load>(Load::make(parallel_buf[idx_],
+                                   ExprVectorToExprHandleVector(v->indices()))
+                            .node());
+    // load_op->buf()->set_dims(
+    //     ExprHandleVectorToExprVector(parallel_buf[idx_].dims()));
+    // std::cout << to_string(load_op) << std::endl;
+    return load_op;
+  }
+  return v;
+}
+
+StmtPtr FunctorParallizationMutator::mutate(StorePtr v) {
+  if (buf_ret_map_.count(v->buf())) {
+    auto parallel_buf = buf_ret_map_[v->buf()];
+    StorePtr store_op = Store::make(parallel_buf[idx_],
+                                    ExprVectorToExprHandleVector(v->indices()),
+                                    ExprHandle(v->value()));
+    store_op->set_value(v->value()->accept_mutator(this));
+    std::vector<ExprPtr> new_indices;
+    for (auto idx : store_op->indices()) {
+      new_indices.emplace_back(idx->accept_mutator(this));
+    }
+    store_op->set_indices(new_indices);
+    std::vector<ExprPtr> new_dims;
+
+    for (auto dim : store_op->buf()->dims()) {
+      new_dims.emplace_back(dim->accept_mutator(this));
+    }
+
+    store_op->buf()->set_dims(new_dims);
+    // store_op->buf()->set_dims(
+    //     ExprHandleVectorToExprVector(parallel_buf[idx_].dims()));
+    return store_op;
+  }
+  return v;
+}
+
+StmtPtr FunctorParallization::Parallel_functor(
+    StmtPtr s, int64_t degree, VarPtr iter_var,
+    std::unordered_map<BufPtr, std::vector<BufHandle>> buf_args_map,
+    std::unordered_map<VarPtr, std::vector<VarHandle>> var_args_map,
+    std::unordered_map<BufPtr, std::vector<BufHandle>> buf_ret_map,
+    std::unordered_map<VarPtr, std::vector<VarHandle>> dims_map) {
+  IRCloner clone;
+  auto top_for = to<For>(s);
+  auto functor_stmt = top_for->body();
+  std::vector<StmtPtr> parallel_stmt;
+  for (int i = 0; i < degree; i++) {
+    IRCloner clone;
+    FunctorParallizationMutator functor_parallel_mutator(
+        degree, i, buf_args_map, var_args_map, buf_ret_map);
+    FunctorParallizationShapeMutator functor_parallel_shape_mutator(degree, i,
+                                                                    dims_map);
+
+    parallel_stmt.emplace_back(
+        functor_stmt->accept_mutator(&clone)
+            ->accept_mutator(&functor_parallel_shape_mutator)
+            ->accept_mutator(&functor_parallel_mutator));
+  }
+  auto if_then_else = parallel_stmt[0];
+  for (int i = 1; i < degree; i++) {
+    if_then_else = Cond::make(ExprHandle(iter_var) == LongImm::make(i),
+                              parallel_stmt[i], if_then_else);
+  }
+  top_for->set_body(if_then_else);
+  return top_for;
 }

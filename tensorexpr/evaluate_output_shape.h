@@ -17,6 +17,8 @@ class TORCH_API OutputShapeEvaluator : public IRVisitor {
 
   void visit(VarPtr v) override;
   void visit(LongImmPtr v) override;
+  void visit(BoolImmPtr v) override;
+  void visit(IntImmPtr v) override;
   void visit(AddPtr v) override;
   void visit(SubPtr v) override;
   void visit(MulPtr v) override;
@@ -25,6 +27,7 @@ class TORCH_API OutputShapeEvaluator : public IRVisitor {
   void visit(MaxPtr v) override;
   void visit(MinPtr v) override;
   void visit(CompareSelectPtr v) override;
+  void visit(IfThenElsePtr v) override;
 
   int64_t get_value() { return _tmp_value; }
 

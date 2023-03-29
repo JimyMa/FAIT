@@ -27,8 +27,8 @@ class SSDAnchorGenerator(torch.nn.Module):
             anchor_ratio = [1.]
             for r in ratios[k]:
                 anchor_ratio += [1 / r, r]  # 4 or 6 ratio
-            anchor_ratios.append(torch.Tensor(anchor_ratio))
-            anchor_scales.append(torch.Tensor(scales))
+            anchor_ratios.append(torch.Tensor(anchor_ratio).cuda())
+            anchor_scales.append(torch.Tensor(scales).cuda())
 
         self.base_sizes = min_sizes
         self.scales = anchor_scales
@@ -48,7 +48,7 @@ class SSDAnchorGenerator(torch.nn.Module):
             indices = list(range(len(self.ratios[i])))
             indices.insert(1, len(indices))
             base_anchors = torch.index_select(base_anchors, 0,
-                                              torch.LongTensor(indices))
+                                              torch.LongTensor(indices).cuda())
             multi_level_base_anchors.append(base_anchors.cuda())
         return multi_level_base_anchors
 
@@ -88,6 +88,7 @@ class SSDAnchorGenerator(torch.nn.Module):
         for i in range(self.num_levels):
             anchors = self.single_level_grid_priors(
                 featmap_sizes[i], level_idx=i, dtype=dtype, device=device)
+            # print(anchors.shape)
             multi_level_anchors.append(anchors)
         return multi_level_anchors
 
@@ -243,6 +244,10 @@ class SSDBBox(torch.nn.Module):
         for img_id in range(cls_scores[0].size(0)):
             cls_score_list = select_single_mlvl(cls_scores, img_id)
             bbox_pred_list = select_single_mlvl(bbox_preds, img_id)
+            print([a.shape for a in cls_score_list])
+            print([a.shape for a in bbox_pred_list])
+            print([a.shape for a in mlvl_priors])
+            print(bbox_pred_list[4])
             results = self._get_bboxes_single(
                 cls_score_list, bbox_pred_list, mlvl_priors)
             result_list.append(results)
