@@ -18,6 +18,7 @@
 #include "fuser/tssa_set_ops.h"
 #include "passes/tensor_ssa.h"
 #include "tensorexpr/cuda_codegen_tssa.h"
+#include "tensorexpr/evaluate_dim.h"
 // #include <torch/csrc/jit/ir/ir.h>
 // #include <torch/csrc/jit/runtime/interpreter.h>
 // #include <torch/csrc/jit/tensorexpr/analysis.h>
@@ -114,6 +115,8 @@ class GraphBuilder {
   std::unordered_map<VarPtr, std::vector<VarHandle>> LoadVarParallelFunctorMap;
   std::unordered_map<VarPtr, std::vector<VarHandle>> ShapeVarParallelFunctorMap;
   std::unordered_map<BufPtr, std::vector<BufHandle>> StoreBufParallelFunctorMap;
+
+  std::unordered_map<ExprPtr, DimExprEvaluator> dim_evaluators_;
 
   int64_t nInputs_ = 0;
   int64_t nOutputs_ = 0;

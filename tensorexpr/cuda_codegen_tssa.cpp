@@ -899,6 +899,8 @@ void CudaCodeGenTssa::Initialize() {
   HalfChecker halfChecker(buffer_args());
   stmt_v->accept(&halfChecker);
 
+  // std::cout << "1" << std::endl;
+
 #if defined(USE_ROCM)
 #if ROCM_VERSION < 40200
   os() << "#include <hip/hip_runtime.h>" << std::endl;
@@ -962,6 +964,7 @@ void CudaCodeGenTssa::Initialize() {
   }
   os() << ") {";
   os() << std::endl;
+  // std::cout << "2" << std::endl;
 
   if (has_random_) {
     VarPtr idx = alloc<Var>("idx", kInt);
@@ -983,6 +986,7 @@ void CudaCodeGenTssa::Initialize() {
   stmt_v = stmt_v->accept_mutator(&atomic_add_fuser);
 
   stmt_v = registerize(stmt_v);
+  // std::cout << "3" << std::endl;
 
   PrioritizeLoad prioritize_load;
   stmt_v = stmt_v->accept_mutator(&prioritize_load);
@@ -1006,6 +1010,7 @@ void CudaCodeGenTssa::Initialize() {
       throw std::runtime_error("Missing gpu_block_index: " + std::to_string(i));
     }
   }
+  // std::cout << "4" << std::endl;
 
   // Precompute block and thread extents for call_with_numel().  If
   // precomputation can't be done (block/thread extents aren't
@@ -1033,6 +1038,7 @@ void CudaCodeGenTssa::Initialize() {
   // Build an LLVM based eval expression for the extents
   block_extents_eval_.reserve(block_extents.size());
   std::vector<BufferArg> extents_buffer_args;
+  // std::cout << "5" << std::endl;
 
   // We need to extract the args that are used in the thread and block extents
   // from bufferArgs and only use those for the `ExprEval` below. Without this,
@@ -1079,6 +1085,7 @@ void CudaCodeGenTssa::Initialize() {
               "gpu_block_extents: (", metavar_rewriter_->gpu_block_extents(),
               ")\n", "gpu_thread_extents: (",
               metavar_rewriter_->gpu_thread_extents(), ")");
+  // std::cout << "6" << std::endl;
 
   CompileToNVRTC(oss_.str(), func_name);
 }

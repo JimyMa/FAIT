@@ -372,10 +372,18 @@ void GraphBuilder::compile() {
           LONG_TAIL_ABORT("No nnc shape function to support node "
                           << *node->maybeSchema() << std::endl);
         }
+        auto output_tensor_type = node->output(0)->type()->cast<TensorType>();
+        for (int i = 0; i < output_tensor_type->symbolic_sizes().rank(); i++) {
+          if (output_tensor_type->symbolic_sizes()[i].is_static()) {
+            outputShape[i] =
+                LongImm::make(output_tensor_type->symbolic_sizes()[i].value());
+          }
+        }
+
         FunctorShapeMap_[node->output(0)] = outputShape;
+
         LONG_TAIL_LOG_INFO("Process Node Shape " << *node->maybeSchema()
                                                  << " End ...");
-
         LONG_TAIL_LOG_INFO("Process Node Compute Op: " << *node->maybeSchema()
                                                        << " Begin ...");
 
@@ -581,11 +589,13 @@ void GraphBuilder::compile() {
       stmt_, degree_, new_loop_axis.node(), LoadBufParallelFunctorMap,
       LoadVarParallelFunctorMap, StoreBufParallelFunctorMap,
       ShapeVarParallelFunctorMap);
-  l.simplify();
+
+  // l.simplify();
   {
     LONG_TAIL_LOG_INFO("after parallization: ");
     LONG_TAIL_LOG_INFO(to_string(stmt_));
   }
+
   auto to_buf_ptr = [](std::vector<BufHandle> buf_list) {
     std::unordered_set<BufPtr> buf_ptr_list;
     for (auto buf : buf_list) {
@@ -673,6 +683,15 @@ void GraphBuilder::compile() {
   {
     LONG_TAIL_LOG_INFO("after codegen: ");
     LONG_TAIL_LOG_INFO(codegen_->getCodeText());
+  }
+
+  for (auto& store_bufs : StoreBufParallelFunctorMap) {
+    for (auto& store_buf : store_bufs.second) {
+      for (auto& dim : store_buf.dims()) {
+        DimExprEvaluator eval(dim.node());
+        dim_evaluators_.insert({dim.node(), std::move(eval)});
+      }
+    }
   }
   // std::cout << codegen_->getCodeText() << std::endl;
 }
@@ -815,7 +834,9 @@ std::vector<CodeGen::CallArg> GraphBuilder::prepareRunArgs(
                                   .at(exprs_.at(output_value).AsNode<Buf>())[j]
                                   .dims();
       for (auto output_dim_expr : output_dims_expr) {
-        auto dim = EvaluateOutputShape::run(output_dim_expr.node(), dim_map, j);
+        auto dim = dim_evaluators_.at(output_dim_expr.node()).evaluate(dim_map);
+        // auto dim = EvaluateOutputShape::run(output_dim_expr.node(), dim_map,
+        // j);
         output_shape.push_back(dim);
         // std::cout << "output expr: " << to_string(output_dim_expr.node())
         //           << std::endl;
