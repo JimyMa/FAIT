@@ -32,6 +32,7 @@
 #include <torch/csrc/jit/tensorexpr/ir_cloner.h>
 #include <torch/csrc/jit/tensorexpr/ir_printer.h>
 #include <torch/csrc/jit/tensorexpr/ir_simplifier.h>
+#include <torch/csrc/jit/tensorexpr/ir_verifier.h>
 #include <torch/csrc/jit/tensorexpr/kernel.h>
 #include <torch/csrc/jit/tensorexpr/loopnest.h>
 #include <torch/csrc/jit/tensorexpr/loopnest_randomization.h>
@@ -47,6 +48,7 @@
 #include "passes/te_op.h"
 #include "passes/tensor_ssa.h"
 #include "tensorexpr/cuda_codegen_tssa.h"
+#include "tensorexpr/elim_common_subexpr.h"
 #include "tensorexpr/evaluate_output_shape.h"
 #include "tensorexpr/functor_parallization.h"
 #include "tensorexpr/parallel_for_equal_substitution.h"
@@ -589,6 +591,7 @@ void GraphBuilder::compile() {
       stmt_, degree_, new_loop_axis.node(), LoadBufParallelFunctorMap,
       LoadVarParallelFunctorMap, StoreBufParallelFunctorMap,
       ShapeVarParallelFunctorMap);
+  eliminateCommonSubexpr(stmt_);
 
   // l.simplify();
   {

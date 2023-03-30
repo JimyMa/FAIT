@@ -1,37 +1,14 @@
 #include "evaluate_dim.h"
 
-#include <torch/csrc/jit/tensorexpr/ir_visitor.h>
-
 #include <iomanip>
+
+#include "ir_utils.h"
 
 namespace torch {
 namespace jit {
 namespace tensorexpr {
 
 namespace {
-
-static std::string toStr(const ExprPtr &expr) {
-  std::stringstream ss;
-  IRPrinter printer(ss);
-  printer.print(*expr);
-  return ss.str();
-}
-
-class ExprHasher {
- public:
-  size_t operator()(const ExprPtr &expr) const {
-    return provider.hash(expr)._h;
-  }
-
- private:
-  mutable HashProvider provider;
-};
-
-struct ExprEq {
-  bool operator()(const ExprPtr &lhs, const ExprPtr &rhs) const {
-    return toStr(lhs) == toStr(rhs);
-  }
-};
 
 using ExprRegMap = std::unordered_map<ExprPtr, RegId, ExprHasher, ExprEq>;
 
@@ -121,15 +98,13 @@ class DimExprCompiler : public IRVisitor {
     insts.push_back({kOther, {cond, trueVal, falseVal}});
   }
 
-  template <class NodePtr>
-  RegId getRegFor(const NodePtr &node) {
-    auto expr = static_to<Expr>(node);
+  RegId getRegFor(ExprPtr expr) {
     auto it = exprToReg.find(expr);
     if (it != exprToReg.end()) return it->second;
-    node->accept(this);
+    expr->accept(this);
     it = exprToReg.find(expr);
     TORCH_CHECK(it != exprToReg.end(),
-                "Cannot compile expression: ", toStr(expr));
+                "Cannot compile expression: ", std::to_string(expr));
     return it->second;
   }
 

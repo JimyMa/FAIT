@@ -5,7 +5,7 @@
 #include <utility>
 
 #include "fuser/nnc_func.h"
-#include "te_utils.h"
+#include "lowering_utils.h"
 #include "tssa_set_ops.h"
 #include "util/logging.h"
 

@@ -1,9 +1,6 @@
 #pragma once
 
-#include <torch/csrc/jit/tensorexpr/expr.h>
-#include <torch/csrc/jit/tensorexpr/fwd_decls.h>
-#include <torch/csrc/jit/tensorexpr/hash_provider.h>
-#include <torch/csrc/jit/tensorexpr/ir.h>
+#include "ir_utils.h"
 
 namespace torch {
 namespace jit {
