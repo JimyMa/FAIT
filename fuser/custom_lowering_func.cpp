@@ -126,15 +126,74 @@ static Tensor computeSlice(CUSTOM_LOWERING_PARAMS) {
   });
 }
 
+using EwiseFunc = std::function<ExprHandle(const ExprHandle&)>;
+#define EWISE_FUNC_CREATOR_PARAMS Node *node, const ValueExprMap &valueToExpr
+using EwiseFuncCreator = std::function<EwiseFunc(EWISE_FUNC_CREATOR_PARAMS)>;
+
+static EwiseFunc getClamp(EWISE_FUNC_CREATOR_PARAMS) {
+  return [node, &valueToExpr](const ExprHandle& src) {
+    auto result = src;
+    if (node->input(1)->type()->kind() != TypeKind::NoneType)
+      result = Max::make(
+          result,
+          ExprHandle(Cast::make(src.dtype(), GET_ANY_SCALAR_EXPR_AT(1))), true);
+    if (node->input(2)->type()->kind() != TypeKind::NoneType)
+      result = Min::make(
+          result,
+          ExprHandle(Cast::make(src.dtype(), GET_ANY_SCALAR_EXPR_AT(2))), true);
+    return result;
+  };
+};
+
+static OperatorMap<EwiseFuncCreator> ewiseExprCreators{
+    {"aten::sigmoid(Tensor self) -> Tensor",
+     [](EWISE_FUNC_CREATOR_PARAMS) { return sigmoid; }},
+    {"aten::clamp(Tensor self, Scalar? min=None, Scalar? max=None) -> Tensor",
+     getClamp},
+};
+
+static std::vector<EwiseFunc> findEwiseFuncsForSetSrc(
+    Value* self, Value* src, Symbol viewSym, const ValueExprMap& valueToExpr) {
+  // Trace src to self
+  Value* curVal = src;
+  std::list<EwiseFunc> funcList;
+
+  while (true) {
+    // Check definition of value
+    auto node = curVal->node();
+
+    // If view symbol is encountered, check if it operates on self
+    if (node->kind() == viewSym) {
+      if (node->input(0) == self)
+        break;
+      else
+        return {};
+    }
+
+    // Not the target view symbol, check if we can create an element-wise
+    // expression
+    auto op = node->maybeOperator();
+    if (!op) return {};
+    auto exprCreator = ewiseExprCreators.find(*op);
+    if (!exprCreator) return {};
+    funcList.push_front((*exprCreator)(node, valueToExpr));
+
+    // Move to its first input
+    curVal = node->input(0);
+  }
+
+  return {funcList.begin(), funcList.end()};
+}
+
 static Tensor computeSliceSet(CUSTOM_LOWERING_PARAMS) {
   return Compute("slice_set", outShape, [&](const ParameterList& axes) {
     // Tensor
-    auto src = GET_BUF_AT(0);
-    auto rank = src.dims().size();
-    auto slice_setter = GET_BUF_AT(1);
+    auto self = GET_BUF_AT(0);
+    auto rank = self.dims().size();
+    auto src = GET_BUF_AT(1);
     auto dim = GET_INT_CONST_AT(2);
     if (dim < 0) dim += rank;
-    auto dimSize = src.dims().at(dim);
+    auto dimSize = self.dims().at(dim);
 
     // Start
     auto startVal = node->input(3);
@@ -159,32 +218,26 @@ static Tensor computeSliceSet(CUSTOM_LOWERING_PARAMS) {
     // Step
     int64_t step = GET_INT_CONST_AT(5);
 
-    std::vector<ExprHandle> slice_setter_axes;
-    for (int i = 0; i < axes.size(); i++) {
-      slice_setter_axes.push_back(axes[i]);
+    // Setter axes
+    std::vector<ExprHandle> srcAxes(axes.begin(), axes.end());
+    auto dimAxis = axes[dim];
+    srcAxes[dim] = (axes[dim] - start) / step;
+
+    // See if we can create an elementwise pipeline for source values
+    auto srcElem = src.load(srcAxes);
+    auto ewiseFuncs = findEwiseFuncsForSetSrc(node->input(0), node->input(1),
+                                              aten::slice, valueToExpr);
+    if (!ewiseFuncs.empty()) {
+      srcElem = self.load(axes);
+      for (auto& func : ewiseFuncs) srcElem = func(srcElem);
     }
 
-    // Index
-    slice_setter_axes[dim] = (axes[dim] - start) / step;
-    auto cond_0 = CompareSelect::make(axes[dim], end, src.load(axes),
-                                      slice_setter.load(slice_setter_axes),
-                                      CompareSelectOperation::kGE);
-    auto cond_1 = CompareSelect::make(axes[dim], start, src.load(axes), cond_0,
-                                      CompareSelectOperation::kLT);
-    auto cond_2 = CompareSelect::make(int64_t(0), (axes[dim] - start) % step,
-                                      src.load(axes), cond_1,
-                                      CompareSelectOperation::kNE);
+    // Select elements
+    auto notSet = (dimAxis < start) || (dimAxis >= end) ||
+                  ((dimAxis - start) % step != int64_t(0));
+    auto result = IfThenElse::make(notSet, self.load(axes), srcElem);
 
-    return cond_2;
-  });
-}
-
-static Tensor computeAssign(CUSTOM_LOWERING_PARAMS) {
-  return Compute("assign", outShape, [&](const ParameterList& axes) {
-    // Tensor
-    auto src = GET_BUF_AT(0);
-    auto assigner = GET_BUF_AT(1);
-    return assigner;
+    return result;
   });
 }
 
@@ -298,7 +351,6 @@ OperatorMap<CustomLoweringFunction> customLoweringFuncs{
     {"aten::repeat(Tensor self, SymInt[] repeats) -> Tensor", computeRepeat},
     {"aten::cat(Tensor[] tensors, int dim=0) -> Tensor", computeCat},
     {"aten::stack(Tensor[] tensors, int dim=0) -> Tensor", computeStack},
-    {"tssa::Assign(Tensor self, Tensor src) -> Tensor", computeAssign},
 };
 
 }  // namespace tensorexpr

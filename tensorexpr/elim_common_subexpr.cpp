@@ -38,10 +38,12 @@ class VarCreator : public IRVisitor {
   CREATE_VAR_FOR_BINARY(Mod)
   CREATE_VAR_FOR_BINARY(Max)
   CREATE_VAR_FOR_BINARY(Min)
-  CREATE_VAR_FOR_BINARY(And)
-  CREATE_VAR_FOR_BINARY(Or)
 
 #undef CREATE_VAR_FOR_BINARY
+
+  void visit(IntrinsicsPtr intrin) override {
+    for (auto &param : intrin->params()) createVarFor(param);
+  }
 
   void visit(LoadPtr load) override {
     for (auto &index : load->indices()) createVarFor(index);
@@ -65,15 +67,15 @@ class VarCreator : public IRVisitor {
     // Skip constants and variables
     if (expr->isConstant() || to<Var>(expr)) return;
 
-    // Visit subexpressions
-    expr->accept(this);
-
     // Find the variable if the expression is numbered before
     auto idIter = exprValueIds.find(expr);
     if (idIter != exprValueIds.end()) {
       exprToVar.insert({expr, idIter->second});
       return;
     }
+
+    // Visit subexpressions
+    expr->accept(this);
 
     // Create a new variable for the expression
     auto var = Var::make(nameGen.generate(), expr->dtype()).AsNode<Var>();
@@ -106,8 +108,7 @@ class ExprReplacer : public IRMutator {
   REPLACE_EXPR(Mod)
   REPLACE_EXPR(Max)
   REPLACE_EXPR(Min)
-  REPLACE_EXPR(And)
-  REPLACE_EXPR(Or)
+  REPLACE_EXPR(Intrinsics)
   REPLACE_EXPR(Load)
   REPLACE_EXPR(CompareSelect)
   REPLACE_EXPR(IfThenElse)
@@ -135,15 +136,6 @@ struct LetInsertTask {
 class LetInserter : public IRMutator {
  public:
   LetInserter() : nameGen("_var_") {}
-
-  StmtPtr mutate(ForPtr loop) override {
-    VarCreator creator(nameGen);
-    ExprReplacer replacer(creator.getExprVarMap());
-    loop->set_stop(processExpr(loop->stop(), loop, creator, replacer));
-    loop->set_body(loop->body()->accept_mutator(this));
-    produceTask(loop, std::move(replacer).getBindings());
-    return loop;
-  }
 
   StmtPtr mutate(CondPtr cond) override {
     VarCreator creator(nameGen);

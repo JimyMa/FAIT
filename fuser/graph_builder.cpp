@@ -350,6 +350,7 @@ void GraphBuilder::compile() {
 
       case prim::ListConstruct:
         break;
+
       case prim::TupleUnpack: {
         for (int i = 0; i < node->outputs().size(); i++) {
           auto output_value = node->output(i);
@@ -358,6 +359,7 @@ void GraphBuilder::compile() {
         }
         break;
       }
+
       default: {
         TORCH_CHECK(node->maybeSchema(), "Schema not found for node ", *node);
         LONG_TAIL_LOG_INFO("Process Node Shape " << node->schema()

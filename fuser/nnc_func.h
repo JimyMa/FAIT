@@ -13,12 +13,12 @@ namespace jit {
 namespace tensorexpr {
 
 using ShapeVec = std::vector<ExprHandle>;
+using ValueExprMap = std::unordered_map<Value *, ExprHandle>;
 
-#define SHAPE_FUNC_PARAMS \
-  Node *node, const std::unordered_map<Value *, ExprHandle> &valueToExpr
-#define CUSTOM_LOWERING_PARAMS                                            \
-  Node *node, const std::unordered_map<Value *, ExprHandle> &valueToExpr, \
-      const ShapeVec &outShape, ScalarType outDtype
+#define SHAPE_FUNC_PARAMS Node *node, const ValueExprMap &valueToExpr
+#define CUSTOM_LOWERING_PARAMS                                           \
+  Node *node, const ValueExprMap &valueToExpr, const ShapeVec &outShape, \
+      ScalarType outDtype
 
 using NNCShapeFunction = ShapeVec (*)(SHAPE_FUNC_PARAMS);
 using CustomLoweringFunction = std::function<Tensor(CUSTOM_LOWERING_PARAMS)>;

@@ -9,6 +9,7 @@
 
 #include "fuser/graph_builder.h"
 #include "fuser/solve_update.h"
+#include "passes/common_passes.h"
 #include "passes/parallelize_loops.h"
 #include "passes/type_utils.h"
 #include "torch/csrc/jit/runtime/custom_operator.h"
@@ -120,6 +121,7 @@ static Node* GetParallelledFunctorByParallelMap(
   }
 
   SolveUpdate(subgraph);
+  EliminateDeadCodeTSSA(subgraph);
   ConstantPooling(subgraph);
 
   return functor_op;

@@ -9,8 +9,7 @@ namespace jit {
 namespace tensorexpr {
 
 template <class T>
-inline ExprHandle getScalarExpr(
-    Value* value, const std::unordered_map<Value*, ExprHandle>& valueToExpr) {
+inline ExprHandle getScalarExpr(Value* value, const ValueExprMap& valueToExpr) {
   auto cnst = constant_as<T>(value);
   if (cnst)
     return ExprHandle(
@@ -19,8 +18,8 @@ inline ExprHandle getScalarExpr(
     return valueToExpr.at(value);
 }
 
-inline ExprHandle getAnyScalarExpr(
-    Value* value, const std::unordered_map<Value*, ExprHandle>& valueToExpr) {
+inline ExprHandle getAnyScalarExpr(Value* value,
+                                   const ValueExprMap& valueToExpr) {
   auto ival = toIValue(value);
   if (ival) {
     switch (value->type()->kind()) {
@@ -45,7 +44,7 @@ inline ExprHandle getAnyScalarExpr(
 
 template <class T>
 inline std::vector<ExprHandle> getScalarExprList(
-    Value* value, const std::unordered_map<Value*, ExprHandle>& valueToExpr) {
+    Value* value, const ValueExprMap& valueToExpr) {
   TORCH_CHECK(value->type()->kind() == TypeKind::ListType);
   std::vector<ExprHandle> result;
   auto node = value->node();
@@ -63,8 +62,8 @@ inline std::vector<ExprHandle> getScalarExprList(
   return result;
 }
 
-inline std::vector<BufHandle> getBufList(
-    Value* value, const std::unordered_map<Value*, ExprHandle>& valueToExpr) {
+inline std::vector<BufHandle> getBufList(Value* value,
+                                         const ValueExprMap& valueToExpr) {
   auto node = value->node();
   if (node->kind() != prim::ListConstruct) {
     TORCH_CHECK(false, "Cannot construct buffer list for value defined by ",

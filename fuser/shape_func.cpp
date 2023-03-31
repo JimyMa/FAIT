@@ -272,12 +272,11 @@ OperatorSet identicalShapeOps{
     "aten::lt.Scalar(Tensor self, Scalar other) -> Tensor",
     "aten::gt.Scalar(Tensor self, Scalar other) -> Tensor",
     "aten::ge.Scalar(Tensor self, Scalar other) -> Tensor",
+    "aten::softmax.int(Tensor self, int dim, ScalarType? dtype=None) -> Tensor",
     "tssa::SelectSet(Tensor self, Tensor src, int dim, int index) -> Tensor",
     "tssa::SliceSet(Tensor self, Tensor src, int dim=0, SymInt? start=None, "
     "SymInt? end=None, SymInt step=1) -> Tensor",
-    "tssa::Assign(Tensor self, Tensor src) -> Tensor",
-    "aten::clamp.Tensor(Tensor self, Tensor? min=None, Tensor? max=None) -> "
-    "Tensor"};
+};
 
 }  // namespace tensorexpr
 }  // namespace jit
