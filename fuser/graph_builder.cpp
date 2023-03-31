@@ -50,6 +50,7 @@
 #include "tensorexpr/cuda_codegen_tssa.h"
 #include "tensorexpr/elim_common_subexpr.h"
 #include "tensorexpr/evaluate_output_shape.h"
+#include "tensorexpr/extract_common_cond.h"
 #include "tensorexpr/functor_parallization.h"
 #include "tensorexpr/parallel_for_equal_substitution.h"
 #include "tensorexpr/tuple_expr.h"
@@ -453,6 +454,8 @@ void GraphBuilder::compile() {
   l.inlineIntermediateBufs(true);
 
   auto stmt_ = l.root_stmt();
+  refactorForStop(stmt_);
+
   {
     LONG_TAIL_LOG_INFO("after compute inline: ");
     LONG_TAIL_LOG_INFO(to_string(stmt_));
