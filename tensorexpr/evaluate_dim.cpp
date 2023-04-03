@@ -122,9 +122,6 @@ class DimExprCompiler : public IRVisitor {
 
 }  // namespace
 
-static constexpr auto kOpWidth = 14;
-static constexpr auto kRegWidth = 4;
-
 DimExprEvaluator::DimExprEvaluator(const ExprPtr &expr) {
   // Collect all constants and variables
   ExprRegMap exprToReg;
@@ -218,6 +215,9 @@ int64_t DimExprEvaluator::evaluate(
 
   return regs.back();
 }
+
+static constexpr auto kOpWidth = 14;
+static constexpr auto kRegWidth = 4;
 
 static std::string cmpStrs[] = {"=", ">", ">=", "<", "<=", "!="};
 static std::unordered_map<IRNodeType, std::string> nodeTypeStrs{
