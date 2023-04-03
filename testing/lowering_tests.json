@@ -37,6 +37,12 @@
       [ [ { "shape": [ 2, 3 ], "dtype": "Float" }, 0.5 ], { } ]
     ]
   },
+  "softmax": {
+    "schema": "aten::softmax.int(Tensor self, int dim, ScalarType? dtype=None) -> Tensor",
+    "cases": [
+      [ [ { "shape": [ 2, 3, 4 ], "dtype": "Float" }, 1 ], { } ]
+    ]
+  },
   "select": {
     "schema": "aten::select.int(Tensor(a) self, int dim, int index) -> Tensor(a)",
     "cases": [
