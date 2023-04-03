@@ -1110,6 +1110,16 @@ void CudaCodeGenTssa::Initialize() {
 #endif
   }
 
+  for (const auto& be : block_extents) {
+    DimExprEvaluator evaluator(be);
+    block_extents_expr_eval_.emplace_back(evaluator);
+  }
+
+  for (const auto& te : thread_extents) {
+    DimExprEvaluator evaluator(te);
+    thread_extents_expr_eval_.emplace_back(evaluator);
+  }
+
   GRAPH_DEBUG("Fused TE CUDA kernel:\n", oss_.str(), "\n",
               "gpu_block_extents: (", metavar_rewriter_->gpu_block_extents(),
               ")\n", "gpu_thread_extents: (",
@@ -1181,16 +1191,17 @@ void CudaCodeGenTssa::call_raw(const std::vector<void*>& raw_args) {
   std::vector<int> gpu_block_extents_v(3, 1);
   // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
   std::vector<int> gpu_thread_extents_v(3, 1);
-
   // evaluate all the block/thread extents into values
   // TODO: eventually, codegen these calculations and make them part of the
   // module.
   std::vector<void*> extent_args;
   size_t raw_args_size = raw_args.size();
   extent_args.reserve(raw_args_size);
+  std::unordered_map<VarPtr, int64_t> dim_map;
   for (size_t i = 0; i < raw_args_size; ++i) {
     if (arg_pos_in_extents_[i]) {
       extent_args.push_back(raw_args[i]);
+      dim_map[buffer_args[i].var()] = *((int64_t*)(raw_args[i]));
     }
   }
   for (size_t i = 0; i < gpu_block_extents.size(); i++) {
@@ -1202,8 +1213,9 @@ void CudaCodeGenTssa::call_raw(const std::vector<void*>& raw_args) {
       // invocation of block_extents_eval_ isn't thread safe and this function
       // may be invoked by multiple threads
       std::lock_guard<std::mutex> guard(eval_lock_);
-      gpu_block_extents_v[i] =
-          block_extents_eval_[i].value<int64_t>(extent_args);
+      // gpu_block_extents_v[i] =
+      //     block_extents_eval_[i].value<int64_t>(extent_args);
+      gpu_block_extents_v[i] = block_extents_expr_eval_[i].evaluate(dim_map);
       // std::cout << "gpu_block_extents_v" << i << ":" <<
       // gpu_block_extents_v[i]
       //           << std::endl;
@@ -1216,8 +1228,9 @@ void CudaCodeGenTssa::call_raw(const std::vector<void*>& raw_args) {
     }
     {
       std::lock_guard<std::mutex> guard(eval_lock_);
-      gpu_thread_extents_v[i] =
-          thread_extents_eval_[i].value<int64_t>(extent_args);
+      // gpu_thread_extents_v[i] =
+      //     thread_extents_eval_[i].value<int64_t>(extent_args);
+      gpu_thread_extents_v[i] = thread_extents_expr_eval_[i].evaluate(dim_map);
     }
   }
 

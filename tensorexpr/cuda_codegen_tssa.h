@@ -17,6 +17,8 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#include "tensorexpr/evaluate_dim.h"
+
 namespace torch {
 namespace jit {
 namespace tensorexpr {
@@ -268,6 +270,9 @@ class TORCH_CUDA_CU_API CudaCodeGenTssa : public CodeGen {
   std::vector<ExprEval<SimpleIREvaluator>> block_extents_eval_;
   std::vector<ExprEval<SimpleIREvaluator>> thread_extents_eval_;
 #endif
+
+  std::vector<DimExprEvaluator> block_extents_expr_eval_;
+  std::vector<DimExprEvaluator> thread_extents_expr_eval_;
 
   std::string GetUniqueFuncName(const std::string& func_prefix);
 };
