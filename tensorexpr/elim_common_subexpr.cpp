@@ -161,6 +161,15 @@ class LetInserter : public IRMutator {
     return store;
   }
 
+  StmtPtr mutate(ForPtr loop) override {
+    VarCreator creator(nameGen);
+    ExprReplacer replacer(creator.getExprVarMap());
+    loop->set_stop(processExpr(loop->stop(), loop, creator, replacer));
+    loop->set_body(loop->body()->accept_mutator(this));
+    produceTask(loop, std::move(replacer).getBindings());
+    return loop;
+  }
+
   StmtPtr mutate(BlockPtr block) override {
     // Mutate inner statements
     IRMutator::mutate(block);

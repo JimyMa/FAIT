@@ -129,6 +129,8 @@ class GPUMetaVarRewriterTssa : public IRMutator {
   // Returns true if the current execution scope is equivalent to the launch
   // parameters.
   bool isFullExtent();
+  std::unordered_set<size_t> thread_scope_stack_;
+  std::unordered_set<size_t> block_scope_stack_;
 
   std::vector<VarPtr> gpu_block_vars_;
   std::vector<VarPtr> gpu_thread_vars_;
@@ -257,6 +259,8 @@ class TORCH_CUDA_CU_API CudaCodeGenTssa : public CodeGen {
   int thread_block_size_ = -1;
 
   std::vector<bool> arg_pos_in_extents_;
+  std::vector<ExprPtr> block_extents_;
+  std::vector<ExprPtr> thread_extents_;
 #ifdef TORCH_ENABLE_LLVM
   std::vector<ExprEval<LLVMCodeGen>> block_extents_eval_;
   std::vector<ExprEval<LLVMCodeGen>> thread_extents_eval_;

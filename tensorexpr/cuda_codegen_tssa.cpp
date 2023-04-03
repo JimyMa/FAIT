@@ -15,6 +15,8 @@
 #include <torch/csrc/jit/tensorexpr/ir_simplifier.h>
 #include <torch/csrc/jit/tensorexpr/registerizer.h>
 
+#include "tensorexpr/reconstruct_extent.h"
+
 namespace torch {
 namespace jit {
 namespace tensorexpr {
@@ -675,6 +677,7 @@ StmtPtr GPUMetaVarRewriterTssa::mutate(ForPtr v) {
     if (gpu_block_index >= 3) {
       throw std::runtime_error("support only 3D gpu_block_index");
     }
+    block_scope_stack_.insert(gpu_block_index);
     old_reach = current_block_reach_[gpu_block_index];
 
     // Extents must be positive, assume >= 1.
@@ -684,8 +687,9 @@ StmtPtr GPUMetaVarRewriterTssa::mutate(ForPtr v) {
       current_block_reach_[gpu_block_index] = v->stop();
       // std::cout << to_string(result) << std::endl;
     } else {
-      auto result =
-          IRSimplifier::simplify(alloc<Max>(old_reach, v->stop(), true));
+      auto result = IRSimplifier::simplify(v->stop());
+      // auto result =
+      //     IRSimplifier::simplify(alloc<Max>(old_reach, v->stop(), true));
       current_block_reach_[gpu_block_index] = result;
       // std::cout << to_string(result) << std::endl;
     }
@@ -699,6 +703,7 @@ StmtPtr GPUMetaVarRewriterTssa::mutate(ForPtr v) {
     if (gpu_thread_index >= 3) {
       throw std::runtime_error("support only 3D gpu_thread_index");
     }
+    thread_scope_stack_.insert(gpu_thread_index);
     old_reach = current_thread_reach_[gpu_thread_index];
 
     // Extents must be positive, assume >= 1.
@@ -726,10 +731,12 @@ StmtPtr GPUMetaVarRewriterTssa::mutate(ForPtr v) {
   // pop the internal reach off the stack.
   // NOLINTNEXTLINE(bugprone-branch-clone)
   if (loop_options.is_gpu_block_index()) {
+    block_scope_stack_.erase(loop_options.gpu_block_index());
     // current_block_reach_[loop_options.gpu_block_index()] = old_reach;
     // std::cout << "old reach: " << to_string(old_reach) << std::endl;
     return body;
   } else if (loop_options.is_gpu_thread_index()) {
+    thread_scope_stack_.erase(loop_options.gpu_block_index());
     // current_thread_reach_[loop_options.gpu_thread_index()] = old_reach;
     // std::cout << "old reach: " << to_string(old_reach) << std::endl;
     return body;
@@ -812,7 +819,8 @@ StmtPtr GPUMetaVarRewriterTssa::mutate(BlockPtr v) {
     StmtPtr inner = alloc<Block>(segment.stmts());
     // threads inside blocks.
     auto& thread_extents = cuda_analysis_->gpu_thread_extents();
-    for (size_t i = 0; i < gpu_thread_vars_.size(); ++i) {
+    // for (size_t i = 0; i < gpu_thread_vars_.size(); ++i) {
+    for (auto i : thread_scope_stack_) {
       if (!exprEquals(current_thread_reach_[i], thread_extents[i])) {
         need_sync = true;
         // Mask it against the current dimensions.
@@ -823,7 +831,8 @@ StmtPtr GPUMetaVarRewriterTssa::mutate(BlockPtr v) {
       }
     }
     auto& block_extents = cuda_analysis_->gpu_block_extents();
-    for (size_t i = 0; i < gpu_block_vars_.size(); ++i) {
+    // for (size_t i = 0; i < gpu_block_vars_.size(); ++i) {
+    for (auto i : block_scope_stack_) {
       if (!exprEquals(current_block_reach_[i], block_extents[i])) {
         // Mask it against the current dimensions.
         inner = alloc<Cond>(
@@ -1017,6 +1026,26 @@ void CudaCodeGenTssa::Initialize() {
   // constant), then disallow call_with_numel.
   auto block_extents = metavar_rewriter_->gpu_block_extents();
   auto thread_extents = metavar_rewriter_->gpu_thread_extents();
+
+  std::unordered_map<VarPtr, ExprPtr> let_var_value_map;
+  LetVarAnalysis analysis(let_var_value_map);
+  stmt_v->accept(&analysis);
+
+  for (auto block_extent : block_extents) {
+    ExprReconstructor reconstructor(let_var_value_map);
+    auto extent = block_extent->accept_mutator(&reconstructor);
+    block_extents_.emplace_back(extent);
+  }
+
+  for (auto thread_extent : thread_extents) {
+    ExprReconstructor reconstructor(let_var_value_map);
+    auto extent = thread_extent->accept_mutator(&reconstructor);
+    thread_extents_.emplace_back(extent);
+  }
+
+  block_extents = block_extents_;
+  thread_extents = thread_extents_;
+
   bool canCallWithNumel =
       !has_random_ && block_extents.size() > 0 && thread_extents.size() > 0;
   for (size_t i = 1; i < block_extents.size() && canCallWithNumel; i++) {
@@ -1041,9 +1070,9 @@ void CudaCodeGenTssa::Initialize() {
   // std::cout << "5" << std::endl;
 
   // We need to extract the args that are used in the thread and block extents
-  // from bufferArgs and only use those for the `ExprEval` below. Without this,
-  // bufferArgs might contain arbitrary types that are not handled by LLVM and
-  // hence would result in an error.
+  // from bufferArgs and only use those for the `ExprEval` below. Without
+  // this, bufferArgs might contain arbitrary types that are not handled by
+  // LLVM and hence would result in an error.
   std::unordered_set<VarPtr> vars_in_extents;
   for (const auto& be : block_extents) {
     auto v = VarFinder::find(be);
@@ -1085,7 +1114,6 @@ void CudaCodeGenTssa::Initialize() {
               "gpu_block_extents: (", metavar_rewriter_->gpu_block_extents(),
               ")\n", "gpu_thread_extents: (",
               metavar_rewriter_->gpu_thread_extents(), ")");
-  // std::cout << "6" << std::endl;
 
   CompileToNVRTC(oss_.str(), func_name);
 }
@@ -1138,10 +1166,12 @@ void CudaCodeGenTssa::call_raw(const std::vector<void*>& raw_args) {
   auto const& buffer_args = this->buffer_args();
 
   // TODO: move as much of this into the constructors.
-  const std::vector<ExprPtr>& gpu_block_extents =
-      metavar_rewriter_->gpu_block_extents();
-  const std::vector<ExprPtr>& gpu_thread_extents =
-      metavar_rewriter_->gpu_thread_extents();
+  // const std::vector<ExprPtr>& gpu_block_extents =
+  //     metavar_rewriter_->gpu_block_extents();
+  // const std::vector<ExprPtr>& gpu_thread_extents =
+  //     metavar_rewriter_->gpu_thread_extents();
+  auto gpu_block_extents = block_extents_;
+  auto gpu_thread_extents = thread_extents_;
   if (gpu_block_extents.size() > 3 || gpu_thread_extents.size() > 3) {
     throw malformed_input(
         "cuda_codegen: block or thread extent greater than 3D");
@@ -1312,13 +1342,12 @@ void CudaCodeGenTssa::CompileToNVRTC(const std::string& code,
   const std::string compute =
       std::string("--gpu-architecture=") +
 #if defined(CUDA_VERSION) && CUDA_VERSION >= 11010
-      // CUDA 11.1 allows going directly to SASS (sm_) instead of PTX (compute_)
-      // which gives better backwards compatibility to work on older driver,
-      // (since older driver doesn't necessrily recognize PTX emitted by new
-      // toolkit);
-      // Meanwhile, for forward compatibility (future device with
-      // `compile_to_sass==false`), since SASS are not necessarily compatible,
-      // we fallback to PTX instead.
+      // CUDA 11.1 allows going directly to SASS (sm_) instead of PTX
+      // (compute_) which gives better backwards compatibility to work on
+      // older driver, (since older driver doesn't necessrily recognize PTX
+      // emitted by new toolkit); Meanwhile, for forward compatibility (future
+      // device with `compile_to_sass==false`), since SASS are not necessarily
+      // compatible, we fallback to PTX instead.
       (compile_to_sass ? "sm_" : "compute_") +
 #else
       "compute_" +
