@@ -53,6 +53,7 @@
 #include "tensorexpr/extract_common_cond.h"
 #include "tensorexpr/functor_parallization.h"
 #include "tensorexpr/parallel_for_equal_substitution.h"
+#include "tensorexpr/reconstruct_extent.h"
 #include "tensorexpr/tuple_expr.h"
 #include "util/logging.h"
 
