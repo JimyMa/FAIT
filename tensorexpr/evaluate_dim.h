@@ -16,18 +16,6 @@ struct alignas(32) DimInst {
 
 std::ostream &operator<<(std::ostream &os, const DimInst &inst);
 
-struct VarHasher {
-  size_t operator()(const VarPtr &var) const {
-    return std::hash<std::string>()(var->name_hint());
-  }
-};
-
-struct VarEq {
-  bool operator()(const VarPtr &lhs, const VarPtr &rhs) const {
-    return lhs->name_hint() == rhs->name_hint();
-  }
-};
-
 using VarRegMap = std::unordered_map<VarPtr, RegId>;
 
 class DimExprEvaluator {

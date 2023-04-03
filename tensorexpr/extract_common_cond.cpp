@@ -19,8 +19,7 @@ class CondCounter : public IRVisitor {
   void visit(CompareSelectPtr cmp) override {
     IRVisitor::visit(cmp);
 
-    // Check if the expression is in thr form `x == c ? 1 : 0`
-    if (!to<Var>(cmp->lhs())) return;
+    // Check if the expression is in the form `expr cmp c ? 1 : 0`
     if (!cmp->rhs()->isConstant()) return;
     auto val1 = to<IntImm>(cmp->ret_val1());
     if (!val1 || val1->value() != 1) return;
@@ -52,18 +51,6 @@ class CondRewriter : public IRCloner {
       return alloc<IntImm>(it->second);
     else
       return IRCloner::mutate(cmp);
-  }
-
-  ExprPtr mutate(IfThenElsePtr ite) override {
-    auto cond = to<IntImm>(ite->condition()->accept_mutator(this));
-    if (cond) {
-      auto val = cond->value();
-      if (val)
-        return ite->true_value()->accept_mutator(this);
-      else
-        return ite->false_value()->accept_mutator(this);
-    } else
-      return IRCloner::mutate(ite);
   }
 
  private:
@@ -104,7 +91,7 @@ ExprPtr extractCommonCond(ExprPtr expr) {
   auto condCount = std::move(counter).getCondCount();
   if (condCount.empty()) return expr;
 
-  // Choose the k most common conditions
+  // Choose frequent conditions whose extraction is beneficial
   std::vector<std::pair<CompareSelectPtr, size_t>> condCountVec(
       condCount.begin(), condCount.end());
   std::sort(condCountVec.begin(), condCountVec.end(),
