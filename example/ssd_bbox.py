@@ -244,10 +244,6 @@ class SSDBBox(torch.nn.Module):
         for img_id in range(cls_scores[0].size(0)):
             cls_score_list = select_single_mlvl(cls_scores, img_id)
             bbox_pred_list = select_single_mlvl(bbox_preds, img_id)
-            print([a.shape for a in cls_score_list])
-            print([a.shape for a in bbox_pred_list])
-            print([a.shape for a in mlvl_priors])
-            print(bbox_pred_list[4])
             results = self._get_bboxes_single(
                 cls_score_list, bbox_pred_list, mlvl_priors)
             result_list.append(results)
