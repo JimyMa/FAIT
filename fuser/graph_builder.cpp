@@ -465,14 +465,17 @@ void GraphBuilder::compile() {
 
   // Step 2.2: Loop Binding
   for (auto buf : bufOutputs_) {
-    std::vector<ForPtr> loops = l.getLoopStmtsFor(buf);
+    auto loops = l.getLoopStmtsFor(buf);
     if (loops.empty()) {
       // This happens when Buf is 0-dim
       continue;
     }
+    std::vector<ForPtr> spatialLoops;
+    for (auto& loop : loops)
+      if (!isReductionLoop(loop)) spatialLoops.push_back(loop);
     ForPtr flattened = nullptr;
-    LoopNest::flatten(loops, &flattened);
-    assert(flattened);
+    LoopNest::flatten(spatialLoops, &flattened);
+    TORCH_CHECK(flattened, "Cannot flatten loops");
 
     int loopLevels = -1;
     const int kDefaultLoopLevels = 2;

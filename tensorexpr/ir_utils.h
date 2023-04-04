@@ -25,6 +25,12 @@ struct ExprEq {
   }
 };
 
+/// @brief Determine if a loop is reduction loop. A loop is a reduction loop if
+/// its induction variable appears in `reduce_args` of any `ReduceOp`.
+/// @param loop The for-loop to be checked.
+/// @return Whether `loop` is a reduction loop.
+bool isReductionLoop(ForPtr loop);
+
 }  // namespace tensorexpr
 }  // namespace jit
 }  // namespace torch
