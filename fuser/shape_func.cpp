@@ -8,6 +8,10 @@ namespace tensorexpr {
 
 static ShapeVec getScalarShape(SHAPE_FUNC_PARAMS) { return {}; }
 
+static ShapeVec computeAsShape(SHAPE_FUNC_PARAMS) {
+  return GET_BUF_AT(1).dims();
+}
+
 static ShapeVec computeFillShape(SHAPE_FUNC_PARAMS) {
   return GET_INT_EXPR_LIST_AT(0);
 }
@@ -40,6 +44,20 @@ static ShapeVec computeBcastShape(SHAPE_FUNC_PARAMS) {
     outShape[outRank - 1 - i] = outDim;
   }
   return outShape;
+}
+
+static ShapeVec computeReduceDimShape(SHAPE_FUNC_PARAMS) {
+  auto selfShape = GET_BUF_AT(0).dims();
+  auto rank = selfShape.size();
+  auto dim = GET_INT_CONST_AT(1);
+  if (dim < 0) dim += rank;
+  auto keepdim = GET_BOOL_CONST_AT(2);
+  auto result = selfShape;
+  if (keepdim)
+    result.at(dim) = int64_t(1);
+  else
+    result.erase(result.begin() + dim);
+  return result;
 }
 
 static ShapeVec computeSelectShape(SHAPE_FUNC_PARAMS) {
@@ -236,6 +254,17 @@ OperatorMap<NNCShapeFunction> shapeFuncs{
      computeBcastShape},
     {"aten::mul.Tensor(Tensor self, Tensor other) -> Tensor",
      computeBcastShape},
+    {"aten::div.Tensor(Tensor self, Tensor other) -> Tensor",
+     computeBcastShape},
+    {"aten::maximum(Tensor self, Tensor other) -> Tensor", computeBcastShape},
+    {"aten::minimum(Tensor self, Tensor other) -> Tensor", computeBcastShape},
+    {"aten::lt.Tensor(Tensor self, Tensor other) -> Tensor", computeBcastShape},
+    {"aten::ge.Tensor(Tensor self, Tensor other) -> Tensor", computeBcastShape},
+    {"aten::__and__.Tensor(Tensor self, Tensor other) -> Tensor",
+     computeBcastShape},
+    {"aten::max.dim(Tensor self, int dim, bool keepdim=False) -> (Tensor "
+     "values, Tensor indices)",
+     computeReduceDimShape},
     {"aten::select.int(Tensor(a) self, int dim, int index) -> Tensor(a)",
      computeSelectShape},
     {"aten::slice.Tensor(Tensor(a) self, int dim=0, SymInt? start=None, "
@@ -250,6 +279,8 @@ OperatorMap<NNCShapeFunction> shapeFuncs{
     {"aten::expand(Tensor(a) self, SymInt[] size, *, bool implicit=False) -> "
      "Tensor(a)",
      computeExpandShape},
+    {"aten::expand_as(Tensor(a) self, Tensor other) -> Tensor(a)",
+     computeAsShape},
     {"aten::repeat(Tensor self, SymInt[] repeats) -> Tensor",
      computeRepeatShape},
     {"aten::cat(Tensor[] tensors, int dim=0) -> Tensor", computeCatShape},
@@ -260,9 +291,12 @@ OperatorSet identicalShapeOps{
     "aten::to.device(Tensor(a) self, Device device, ScalarType dtype, bool "
     "non_blocking=False, bool copy=False, MemoryFormat? memory_format=None) -> "
     "Tensor(a)",
+    "aten::contiguous(Tensor(a) self, *, MemoryFormat memory_format=0) -> "
+    "Tensor(a)",
     "aten::sigmoid(Tensor self) -> Tensor",
     "aten::exp(Tensor self) -> Tensor",
     "aten::clamp(Tensor self, Scalar? min=None, Scalar? max=None) -> Tensor",
+    "aten::triu(Tensor self, int diagonal=0) -> Tensor",
     "aten::add.Scalar(Tensor self, Scalar other, Scalar alpha=1) -> Tensor",
     "aten::sub.Scalar(Tensor self, Scalar other, Scalar alpha=1) -> Tensor",
     "aten::mul.Scalar(Tensor self, Scalar other) -> Tensor",
@@ -270,6 +304,7 @@ OperatorSet identicalShapeOps{
     "aten::eq.Scalar(Tensor self, Scalar other) -> Tensor",
     "aten::ne.Scalar(Tensor self, Scalar other) -> Tensor",
     "aten::lt.Scalar(Tensor self, Scalar other) -> Tensor",
+    "aten::le.Scalar(Tensor self, Scalar other) -> Tensor",
     "aten::gt.Scalar(Tensor self, Scalar other) -> Tensor",
     "aten::ge.Scalar(Tensor self, Scalar other) -> Tensor",
     "aten::softmax.int(Tensor self, int dim, ScalarType? dtype=None) -> Tensor",

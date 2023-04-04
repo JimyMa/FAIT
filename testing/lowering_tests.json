@@ -25,6 +25,13 @@
       [ [ { "shape": [ 2, 3, 4 ], "dtype": "Long" }, null, 6 ], { } ]
     ]
   },
+  "triu": {
+    "schema": "aten::triu(Tensor self, int diagonal=0) -> Tensor",
+    "cases": [
+      [ [ { "shape": [ 2, 4, 4 ], "dtype": "Float" }, 1 ], { } ],
+      [ [ { "shape": [ 2, 4, 4 ], "dtype": "Float" }, -2 ], { } ]
+    ]
+  },
   "add_tensor": {
     "schema": "aten::add.Tensor(Tensor self, Tensor other, *, Scalar alpha=1) -> Tensor",
     "cases": [
@@ -35,6 +42,25 @@
     "schema": "aten::add.Scalar(Tensor self, Scalar other, Scalar alpha=1) -> Tensor",
     "cases": [
       [ [ { "shape": [ 2, 3 ], "dtype": "Float" }, 0.5 ], { } ]
+    ]
+  },
+  "maximum": {
+    "schema": "aten::maximum(Tensor self, Tensor other) -> Tensor",
+    "cases": [
+      [ [ { "shape": [ 3, 1 ], "dtype": "Float" }, { "shape": [ 2, 1, 4 ], "dtype": "Float" } ], { } ]
+    ]
+  },
+  "minimum": {
+    "schema": "aten::minimum(Tensor self, Tensor other) -> Tensor",
+    "cases": [
+      [ [ { "shape": [ 3, 1 ], "dtype": "Float" }, { "shape": [ 2, 1, 4 ], "dtype": "Float" } ], { } ]
+    ]
+  },
+  "max": {
+    "schema": "aten::max.dim(Tensor self, int dim, bool keepdim=False) -> (Tensor values, Tensor indices)",
+    "cases": [
+      [ [ { "shape": [ 2, 3, 4 ], "dtype": "Float" }, -2 ], { } ],
+      [ [ { "shape": [ 2, 3, 4 ], "dtype": "Float" }, -1, true ], { } ]
     ]
   },
   "softmax": {
@@ -79,6 +105,12 @@
     "schema": "aten::expand(Tensor(a) self, SymInt[] size, *, bool implicit=False) -> Tensor(a)",
     "cases": [
       [ [ { "shape": [ 3, 4 ], "dtype": "Float" }, [ 2, -1, 4 ] ], { } ]
+    ]
+  },
+  "expand_as": {
+    "schema": "aten::expand_as(Tensor(a) self, Tensor other) -> Tensor(a)",
+    "cases": [
+      [ [ { "shape": [ 3, 1 ], "dtype": "Float" }, { "shape": [ 2, 3, 4 ], "dtype": "Float" } ], { } ]
     ]
   },
   "repeat": {

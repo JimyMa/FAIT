@@ -82,6 +82,7 @@ inline std::vector<BufHandle> getBufList(Value* value,
 
 #define GET_CONST_AT(idx, type) *constant_as<type>(node->input(idx))
 #define GET_INT_CONST_AT(idx) GET_CONST_AT(idx, int64_t)
+#define GET_BOOL_CONST_AT(idx) GET_CONST_AT(idx, bool)
 
 #define GET_SCALAR_EXPR_AT(idx, type) \
   getScalarExpr<type>(node->input(idx), valueToExpr)

@@ -66,8 +66,7 @@ OperatorSet fusableOps{
     "aten::ge.Scalar(Tensor self, Scalar other) -> Tensor",
     "aten::max.dim(Tensor self, int dim, bool keepdim=False) -> (Tensor "
     "values, Tensor indices)",
-    // "aten::softmax.int(Tensor self, int dim, ScalarType? dtype=None) ->
-    // Tensor",
+    "aten::softmax.int(Tensor self, int dim, ScalarType? dtype=None) -> Tensor",
     "aten::select.int(Tensor(a) self, int dim, int index) -> Tensor(a)",
     "aten::slice.Tensor(Tensor(a) self, int dim=0, SymInt? start=None, SymInt? "
     "end=None, SymInt step=1) -> Tensor(a)",

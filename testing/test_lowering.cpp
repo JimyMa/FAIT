@@ -5,6 +5,7 @@
 #include <torch/csrc/jit/api/function_impl.h>
 #include <torch/csrc/jit/ir/ir.h>
 #include <torch/csrc/jit/passes/constant_propagation.h>
+#include <torch/csrc/jit/passes/lower_tuples.h>
 #include <torchvision/vision.h>
 
 #include <fstream>
@@ -110,8 +111,17 @@ static Value *createNode(const json &inputCase, const FunctionSchema &schema,
                              createValue(type, pair.second, graph.get()));
   }
 
-  return graph->insert(symbol, argValues, kwargValues);
+  // Create operation
+  auto output = graph->insert(symbol, argValues, kwargValues);
+  auto node = output->node();
+  if (output->type()->cast<TupleType>())  // fix multi-out operations
+    output = graph->createTupleUnpack(output)->insertAfter(node)->output(0);
+
+  return output;
 }
+
+static std::unordered_set<Symbol> includedSymbols{
+    prim::ListConstruct, prim::TupleUnpack, prim::TupleConstruct};
 
 static void createFusedFunctor(const std::shared_ptr<Graph> &graph) {
   // Infer dtype and device
@@ -122,7 +132,7 @@ static void createFusedFunctor(const std::shared_ptr<Graph> &graph) {
   auto tail = graph->return_node(), head = tail->prev();
   for (auto node = head->prev(); node != graph->param_node();
        node = node->prev()) {
-    if (node->kind() == prim::ListConstruct) {
+    if (includedSymbols.count(node->kind())) {
       node->moveBefore(head);
       head = node;
     }
@@ -174,10 +184,15 @@ static void runCase(const json &inputCase, const FunctionSchema &schema) {
   auto refGraph = std::make_shared<Graph>();
   refGraph->registerOutput(createNode(inputCase, schema, refGraph));
   if (!refGraph->inputs().empty()) ConstantPropagation(refGraph);
+  LowerSimpleTuples(refGraph);
+  LONG_TAIL_LOG_INFO("Reference graph:");
+  LONG_TAIL_LOG_INFO(refGraph->toString());
 
   // Construct graph with fused functor
   auto compiledGraph = refGraph->copy();
   createFusedFunctor(compiledGraph);
+  LONG_TAIL_LOG_INFO("Compiled graph:");
+  LONG_TAIL_LOG_INFO(compiledGraph->toString());
 
   // Generate inputs
   std::vector<IValue> inputs;

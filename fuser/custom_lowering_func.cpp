@@ -14,7 +14,7 @@ namespace jit {
 namespace tensorexpr {
 
 static Tensor computeTensor(CUSTOM_LOWERING_PARAMS) {
-  return Compute("tensor", outShape, [&](const ParameterList& axes) {
+  return Compute("tensor", outShape, [&](ParameterList& axes) {
     return GET_ANY_SCALAR_EXPR_AT(0);
   });
 }
@@ -23,7 +23,7 @@ template <class T>
 static CustomLoweringFunction getComputeFillConst(T val,
                                                   const std::string& name) {
   return [=](CUSTOM_LOWERING_PARAMS) {
-    return Compute("fill_" + name, outShape, [&](const ParameterList& axes) {
+    return Compute("fill_" + name, outShape, [&](ParameterList& axes) {
       return ExprHandle(getImmediateByType(Dtype(outDtype), val));
     });
   };
@@ -36,8 +36,18 @@ static Tensor computeArange(CUSTOM_LOWERING_PARAMS) {
   });
 }
 
+static Tensor computeTriu(CUSTOM_LOWERING_PARAMS) {
+  return Compute("triu", outShape, [&](ParameterList& axes) {
+    auto self = GET_BUF_AT(0);
+    auto diagonal = GET_INT_EXPR_AT(1);
+    auto row = *(axes.end() - 2), col = axes.back();
+    return IfThenElse::make((col - row) >= diagonal, self.load(axes),
+                            ExprHandle(immLike(self, 0)));
+  });
+}
+
 static ExprHandle loadBcast(const BufHandle& srcBuf, const ShapeVec& dstShape,
-                            const ParameterList& axes) {
+                            ParameterList& axes) {
   auto srcRank = srcBuf.dims().size(), dstRank = dstShape.size();
   std::vector<ExprHandle> loadAxes(axes.begin(), axes.end());
   loadAxes.erase(loadAxes.begin(), loadAxes.begin() + dstRank - srcRank);
@@ -52,7 +62,7 @@ template <class BinOp>
 static CustomLoweringFunction getComputeBinaryBcast(BinOp&& op,
                                                     const std::string& name) {
   return [=](CUSTOM_LOWERING_PARAMS) {
-    return Compute(name + "_bcast", outShape, [&](const ParameterList& axes) {
+    return Compute(name + "_bcast", outShape, [&](ParameterList& axes) {
       auto lhs = loadBcast(GET_BUF_AT(0), outShape, axes);
       auto rhs = loadBcast(GET_BUF_AT(1), outShape, axes);
       return op(lhs, rhs);
@@ -60,8 +70,41 @@ static CustomLoweringFunction getComputeBinaryBcast(BinOp&& op,
   };
 }
 
+static ExprHandle max(const ExprHandle& lhs, const ExprHandle& rhs) {
+  return Max::make(lhs, rhs, true);
+}
+
+static ExprHandle min(const ExprHandle& lhs, const ExprHandle& rhs) {
+  return Min::make(lhs, rhs, true);
+}
+
+static Tensor computeMaxDim(CUSTOM_LOWERING_PARAMS) {
+  // Process arguments
+  auto self = GET_BUF_AT(0);
+  auto selfShape = self.dims();
+  auto rank = self.dims().size();
+  auto dim = GET_INT_CONST_AT(1);
+  if (dim < 0) dim += rank;
+  auto keepdim = GET_BOOL_CONST_AT(2);
+  auto reduceDim = selfShape.at(dim);
+
+  // Compute reduction
+  auto body = [&](ParameterList& axes) {
+    auto loadAxes = axes;
+    auto reduceAxis = loadAxes.back();
+    loadAxes.pop_back();
+    if (keepdim)
+      loadAxes.at(dim) = reduceAxis;
+    else
+      loadAxes.insert(loadAxes.begin() + dim, reduceAxis);
+    return self.load(loadAxes);
+  };
+  return Reduce("max_dim", outShape, Maximum(Dtype(outDtype)), std::move(body),
+                {reduceDim});
+}
+
 static Tensor computeSelect(CUSTOM_LOWERING_PARAMS) {
-  return Compute("select", outShape, [&](const ParameterList& axes) {
+  return Compute("select", outShape, [&](ParameterList& axes) {
     auto src = GET_BUF_AT(0);
     auto rank = src.dims().size();
     auto dim = GET_INT_CONST_AT(1);
@@ -77,29 +120,8 @@ static Tensor computeSelect(CUSTOM_LOWERING_PARAMS) {
   });
 }
 
-static Tensor computeSelectSet(CUSTOM_LOWERING_PARAMS) {
-  return Compute("select_set", outShape, [&](const ParameterList& axes) {
-    auto src = GET_BUF_AT(0);
-    auto rank = src.dims().size();
-    auto select_setter = GET_BUF_AT(1);
-    auto dim = GET_INT_CONST_AT(2);
-    if (dim < 0) dim += rank;
-    auto dimSize = src.dims().at(dim);
-    auto idx = GET_INT_EXPR_AT(3);
-    idx = IfThenElse::make(idx >= int64_t(0), idx, idx + dimSize);
-
-    std::vector<ExprHandle> setter_idx(axes.begin(), axes.end());
-    setter_idx.erase(setter_idx.begin() + dim);
-    auto cond =
-        CompareSelect::make(axes[dim], idx, select_setter.load(setter_idx),
-                            src.load(axes), CompareSelectOperation::kEQ);
-
-    return cond;
-  });
-}
-
 static Tensor computeSlice(CUSTOM_LOWERING_PARAMS) {
-  return Compute("slice", outShape, [&](const ParameterList& axes) {
+  return Compute("slice", outShape, [&](ParameterList& axes) {
     // Source tensor
     auto src = GET_BUF_AT(0);
     auto rank = src.dims().size();
@@ -126,6 +148,89 @@ static Tensor computeSlice(CUSTOM_LOWERING_PARAMS) {
   });
 }
 
+static Tensor computeUnsqueeze(CUSTOM_LOWERING_PARAMS) {
+  return Compute("unsqueeze", outShape, [&](ParameterList& axes) {
+    auto self = GET_BUF_AT(0);
+    auto rank = self.dims().size();
+    auto dim = GET_INT_CONST_AT(1);
+    if (dim < 0) dim += rank + 1;
+    auto loadAxes = axes;
+    loadAxes.erase(loadAxes.begin() + dim);
+    return self.load(loadAxes);
+  });
+}
+
+static Tensor computeRepeat(CUSTOM_LOWERING_PARAMS) {
+  return Compute("repeat", outShape, [&](ParameterList& axes) {
+    // Remove front axes
+    auto self = GET_BUF_AT(0);
+    auto inShape = self.dims();
+    auto inRank = inShape.size(), outRank = outShape.size();
+    std::vector<ExprHandle> loadAxes(axes.begin(), axes.end());
+    loadAxes.erase(loadAxes.begin(), loadAxes.begin() + outRank - inRank);
+
+    // Update load axes
+    for (auto i : c10::irange(inRank)) {
+      const auto& axis = loadAxes[i];
+      loadAxes[i] =
+          IfThenElse::make(inShape[i] == outShape[i], axis, axis % inShape[i]);
+    }
+
+    return self.load(loadAxes);
+  });
+}
+
+static Tensor computeCat(CUSTOM_LOWERING_PARAMS) {
+  return Compute("cat", outShape, [&](ParameterList& axes) {
+    // Process dimension
+    auto bufs = GET_BUF_LIST_AT(0);
+    auto inRank = bufs.front().dims().size();
+    auto dim = GET_INT_CONST_AT(1);
+    if (dim < 0) dim += inRank;
+
+    // Compute section index range
+    std::vector<ExprHandle> indices(bufs.size() + 1);
+    indices[0] = int64_t(0);
+    for (auto i : c10::irange(bufs.size()))
+      indices[i + 1] = indices[i] + bufs[i].dim(dim);
+
+    // Switch buffers according to index range at concatenation axis
+    auto dimAxis = axes[dim];
+    std::vector<ExprHandle> loadAxes(axes.begin(), axes.end());
+    ExprHandle result(getImmediateByType(bufs.front().dtype(), 0));
+    for (int64_t i = bufs.size() - 1; i >= 0; i--) {
+      auto bufLoadAxes = loadAxes;
+      bufLoadAxes[dim] = dimAxis - indices[i];
+      result = IfThenElse::make(ExprHandle(dimAxis) < indices[i + 1],
+                                bufs[i].load(bufLoadAxes), result);
+    }
+
+    return result;
+  });
+}
+
+static Tensor computeStack(CUSTOM_LOWERING_PARAMS) {
+  return Compute("stack", outShape, [&](ParameterList& axes) {
+    // Process dimension
+    auto bufs = GET_BUF_LIST_AT(0);
+    auto inRank = bufs.front().dims().size();
+    auto dim = GET_INT_CONST_AT(1);
+    if (dim < 0) dim += inRank + 1;
+
+    // Switch buffers according to dim axis
+    auto dimAxis = axes[dim];
+    std::vector<ExprHandle> loadAxes(axes.begin(), axes.end());
+    loadAxes.erase(loadAxes.begin() + dim);
+    ExprHandle result(getImmediateByType(bufs.front().dtype(), 0));
+    for (int64_t i = bufs.size() - 1; i >= 0; i--) {
+      result = IfThenElse::make(ExprHandle(dimAxis) == i,
+                                bufs[i].load(loadAxes), result);
+    }
+
+    return result;
+  });
+}
+
 using EwiseFunc = std::function<ExprHandle(const ExprHandle&)>;
 #define EWISE_FUNC_CREATOR_PARAMS Node *node, const ValueExprMap &valueToExpr
 using EwiseFuncCreator = std::function<EwiseFunc(EWISE_FUNC_CREATOR_PARAMS)>;
@@ -135,12 +240,10 @@ static EwiseFunc getClamp(EWISE_FUNC_CREATOR_PARAMS) {
     auto result = src;
     if (node->input(1)->type()->kind() != TypeKind::NoneType)
       result = Max::make(
-          result,
-          ExprHandle(Cast::make(src.dtype(), GET_ANY_SCALAR_EXPR_AT(1))), true);
+          result, Cast::make(src.dtype(), GET_ANY_SCALAR_EXPR_AT(1)), true);
     if (node->input(2)->type()->kind() != TypeKind::NoneType)
       result = Min::make(
-          result,
-          ExprHandle(Cast::make(src.dtype(), GET_ANY_SCALAR_EXPR_AT(2))), true);
+          result, Cast::make(src.dtype(), GET_ANY_SCALAR_EXPR_AT(2)), true);
     return result;
   };
 };
@@ -185,8 +288,29 @@ static std::vector<EwiseFunc> findEwiseFuncsForSetSrc(
   return {funcList.begin(), funcList.end()};
 }
 
+static Tensor computeSelectSet(CUSTOM_LOWERING_PARAMS) {
+  return Compute("select_set", outShape, [&](ParameterList& axes) {
+    auto self = GET_BUF_AT(0);
+    auto rank = self.dims().size();
+    auto src = GET_BUF_AT(1);
+    auto dim = GET_INT_CONST_AT(2);
+    if (dim < 0) dim += rank;
+    auto dimSize = self.dims().at(dim);
+    auto idx = GET_INT_EXPR_AT(3);
+    idx = IfThenElse::make(idx >= int64_t(0), idx, idx + dimSize);
+
+    std::vector<ExprHandle> srcAxes(axes.begin(), axes.end());
+    srcAxes.erase(srcAxes.begin() + dim);
+    auto cond =
+        CompareSelect::make(axes[dim], idx, src.load(srcAxes), self.load(axes),
+                            CompareSelectOperation::kEQ);
+
+    return cond;
+  });
+}
+
 static Tensor computeSliceSet(CUSTOM_LOWERING_PARAMS) {
-  return Compute("slice_set", outShape, [&](const ParameterList& axes) {
+  return Compute("slice_set", outShape, [&](ParameterList& axes) {
     // Tensor
     auto self = GET_BUF_AT(0);
     auto rank = self.dims().size();
@@ -241,89 +365,6 @@ static Tensor computeSliceSet(CUSTOM_LOWERING_PARAMS) {
   });
 }
 
-static Tensor computeUnsqueeze(CUSTOM_LOWERING_PARAMS) {
-  return Compute("unsqueeze", outShape, [&](const ParameterList& axes) {
-    auto self = GET_BUF_AT(0);
-    auto rank = self.dims().size();
-    auto dim = GET_INT_CONST_AT(1);
-    if (dim < 0) dim += rank + 1;
-    auto loadAxes = axes;
-    loadAxes.erase(loadAxes.begin() + dim);
-    return self.load(loadAxes);
-  });
-}
-
-static Tensor computeRepeat(CUSTOM_LOWERING_PARAMS) {
-  return Compute("repeat", outShape, [&](const ParameterList& axes) {
-    // Remove front axes
-    auto self = GET_BUF_AT(0);
-    auto inShape = self.dims();
-    auto inRank = inShape.size(), outRank = outShape.size();
-    std::vector<ExprHandle> loadAxes(axes.begin(), axes.end());
-    loadAxes.erase(loadAxes.begin(), loadAxes.begin() + outRank - inRank);
-
-    // Update load axes
-    for (auto i : c10::irange(inRank)) {
-      const auto& axis = loadAxes[i];
-      loadAxes[i] =
-          IfThenElse::make(inShape[i] == outShape[i], axis, axis % inShape[i]);
-    }
-
-    return self.load(loadAxes);
-  });
-}
-
-static Tensor computeCat(CUSTOM_LOWERING_PARAMS) {
-  return Compute("cat", outShape, [&](const ParameterList& axes) {
-    // Process dimension
-    auto bufs = GET_BUF_LIST_AT(0);
-    auto inRank = bufs.front().dims().size();
-    auto dim = GET_INT_CONST_AT(1);
-    if (dim < 0) dim += inRank;
-
-    // Compute section index range
-    std::vector<ExprHandle> indices(bufs.size() + 1);
-    indices[0] = int64_t(0);
-    for (auto i : c10::irange(bufs.size()))
-      indices[i + 1] = indices[i] + bufs[i].dim(dim);
-
-    // Switch buffers according to index range at concatenation axis
-    auto dimAxis = axes[dim];
-    std::vector<ExprHandle> loadAxes(axes.begin(), axes.end());
-    ExprHandle result(getImmediateByType(bufs.front().dtype(), 0));
-    for (int64_t i = bufs.size() - 1; i >= 0; i--) {
-      auto bufLoadAxes = loadAxes;
-      bufLoadAxes[dim] = dimAxis - indices[i];
-      result = IfThenElse::make(ExprHandle(dimAxis) < indices[i + 1],
-                                bufs[i].load(bufLoadAxes), result);
-    }
-
-    return result;
-  });
-}
-
-static Tensor computeStack(CUSTOM_LOWERING_PARAMS) {
-  return Compute("stack", outShape, [&](const ParameterList& axes) {
-    // Process dimension
-    auto bufs = GET_BUF_LIST_AT(0);
-    auto inRank = bufs.front().dims().size();
-    auto dim = GET_INT_CONST_AT(1);
-    if (dim < 0) dim += inRank + 1;
-
-    // Switch buffers according to dim axis
-    auto dimAxis = axes[dim];
-    std::vector<ExprHandle> loadAxes(axes.begin(), axes.end());
-    loadAxes.erase(loadAxes.begin() + dim);
-    ExprHandle result(getImmediateByType(bufs.front().dtype(), 0));
-    for (int64_t i = bufs.size() - 1; i >= 0; i--) {
-      result = IfThenElse::make(ExprHandle(dimAxis) == i,
-                                bufs[i].load(loadAxes), result);
-    }
-
-    return result;
-  });
-}
-
 static auto _tssaSetOps = registerTssaSetOps();
 
 OperatorMap<CustomLoweringFunction> customLoweringFuncs{
@@ -337,20 +378,28 @@ OperatorMap<CustomLoweringFunction> customLoweringFuncs{
      "Layout? layout=None, Device? device=None, bool? pin_memory=None) -> "
      "Tensor",
      computeArange},
+    {"aten::triu(Tensor self, int diagonal=0) -> Tensor", computeTriu},
+    {"aten::maximum(Tensor self, Tensor other) -> Tensor",
+     getComputeBinaryBcast(max, "max")},
+    {"aten::minimum(Tensor self, Tensor other) -> Tensor",
+     getComputeBinaryBcast(min, "min")},
+    {"aten::max.dim(Tensor self, int dim, bool keepdim=False) -> (Tensor "
+     "values, Tensor indices)",
+     computeMaxDim},
     {"aten::select.int(Tensor(a) self, int dim, int index) -> Tensor(a)",
      computeSelect},
-    {"tssa::SelectSet(Tensor self, Tensor src, int dim, int index) -> Tensor",
-     computeSelectSet},
     {"aten::slice.Tensor(Tensor(a) self, int dim=0, SymInt? start=None, "
      "SymInt? end=None, SymInt step=1) -> Tensor(a)",
      computeSlice},
-    {"tssa::SliceSet(Tensor self, Tensor src, int dim=0, SymInt? start=None, "
-     "SymInt? end=None, SymInt step=1) -> Tensor",
-     computeSliceSet},
     {"aten::unsqueeze(Tensor(a) self, int dim) -> Tensor(a)", computeUnsqueeze},
     {"aten::repeat(Tensor self, SymInt[] repeats) -> Tensor", computeRepeat},
     {"aten::cat(Tensor[] tensors, int dim=0) -> Tensor", computeCat},
     {"aten::stack(Tensor[] tensors, int dim=0) -> Tensor", computeStack},
+    {"tssa::SelectSet(Tensor self, Tensor src, int dim, int index) -> Tensor",
+     computeSelectSet},
+    {"tssa::SliceSet(Tensor self, Tensor src, int dim=0, SymInt? start=None, "
+     "SymInt? end=None, SymInt step=1) -> Tensor",
+     computeSliceSet},
 };
 
 }  // namespace tensorexpr
