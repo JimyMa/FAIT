@@ -623,29 +623,6 @@ void GraphBuilder::compile() {
     LONG_TAIL_LOG_INFO(to_string(stmt_));
   }
 
-  // stmt_ = FunctorParallization::parallel_functor_load(
-  //     stmt_, degree_, new_loop_axis.node(), LoadBufParallelFunctorMap,
-  //     LoadVarParallelFunctorMap);
-  // l.simplify();
-  // stmt_ = FunctorParallization::parallel_functor_store(
-  //     stmt_, degree_, new_loop_axis.node(), StoreBufParallelFunctorMap);
-  // l.simplify();
-  // stmt_ = FunctorParallization::parallel_functor_shape(
-  //     stmt_, degree_, new_loop_axis.node(), ShapeVarParallelFunctorMap);
-  // l.simplify();
-  // ParallelForEqualSubstitution::run(stmt_);
-  // {
-  //   LONG_TAIL_LOG_INFO("after parallization: ");
-  //   LONG_TAIL_LOG_INFO(to_string(stmt_));
-  // }
-  // l.prepareForCodegen();
-  // l.simplify();
-  // IRSimplifier::simplify(stmt_);
-  // {
-  //   LONG_TAIL_LOG_INFO("after pre codegen: ");
-  //   LONG_TAIL_LOG_INFO(to_string(stmt_));
-  // }
-
   // input
   // buf
   for (auto input : FunctorInputArgs) {
