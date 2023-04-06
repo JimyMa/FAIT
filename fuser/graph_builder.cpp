@@ -47,6 +47,7 @@
 #include "fuser/codegen.h"
 #include "passes/te_op.h"
 #include "passes/tensor_ssa.h"
+#include "tensorexpr/collect_interm_buf.h"
 #include "tensorexpr/cuda_codegen_tssa.h"
 #include "tensorexpr/elim_common_subexpr.h"
 #include "tensorexpr/evaluate_output_shape.h"
@@ -463,6 +464,14 @@ void GraphBuilder::compile() {
   }
   // std::cout << to_string(l.root_stmt()) << std::endl;
 
+  // Collect intermediate buffers and create new loop nest
+  auto intermBufs = collectIntermBufs(stmt_, bufOutputs_);
+  for (auto& interm : intermBufs) {
+    bufOutputs_.insert(interm);
+    FunctorOutputBufArgs.emplace_back(interm);
+  }
+  l = LoopNest(stmt_, bufOutputs_);
+
   // Step 2.2: Loop Binding
   for (auto buf : bufOutputs_) {
     auto loops = l.getLoopStmtsFor(buf);
@@ -566,8 +575,8 @@ void GraphBuilder::compile() {
       LoadVarParallelFunctorMap[exprs_[input].AsNode<Var>()] = par_vars;
     }
   }
-  for (auto output : graph_->outputs()) {
-    auto functor_buf = exprs_[output].AsNode<Buf>();
+  for (auto i : c10::irange(FunctorOutputBufArgs.size())) {
+    auto functor_buf = FunctorOutputBufArgs[i].node();
     std::vector<BufHandle> par_bufs;
     for (int i = 0; i < degree_; i++) {
       std::vector<ExprHandle> par_dims;
@@ -593,7 +602,7 @@ void GraphBuilder::compile() {
       par_bufs.push_back(BufHandle(to<Buf>(
           par_buf.node()->accept_mutator(&parallel_functor_shape_mutator))));
     }
-    StoreBufParallelFunctorMap[exprs_[output].AsNode<Buf>()] = par_bufs;
+    StoreBufParallelFunctorMap[functor_buf] = par_bufs;
   }
 
   auto stmt_red_ = FunctorParallization::Parallel_functor(
@@ -689,7 +698,8 @@ void GraphBuilder::run(torch::jit::Stack& stack) const { runKernel(stack); }
 
 std::vector<CodeGen::CallArg> GraphBuilder::prepareRunArgs(
     const at::ArrayRef<IValue>& inputs,
-    std::vector<std::vector<at::Tensor>>& outputs) const {
+    std::vector<std::vector<at::Tensor>>& outputs,
+    std::vector<std::vector<at::Tensor>>& interms) const {
   LONG_TAIL_LOG_INFO("solve input begin");
   std::vector<CodeGen::CallArg> runArgs;
   // TODO: with is_paralllel_args
@@ -811,17 +821,15 @@ std::vector<CodeGen::CallArg> GraphBuilder::prepareRunArgs(
 
   LONG_TAIL_LOG_INFO("preparing input and shape call args DONE!!!");
 
-  auto graph_output_size = graph_->outputs().size();
-  for (int i = 0; i < graph_output_size; i++) {
-    auto output_value = graph_->outputs()[i];
+  for (int i = 0; i < FunctorOutputBufArgs.size(); i++) {
     // std::cout << "output value: " << output_value->debugName() << std::endl;
     std::vector<at::Tensor> list_output;
     for (int j = 0; j < degree_; j++) {
       // bufOutputs_
       std::vector<int64_t> output_shape;
-      auto output_dims_expr = StoreBufParallelFunctorMap
-                                  .at(exprs_.at(output_value).AsNode<Buf>())[j]
-                                  .dims();
+      auto functor_out_buf = FunctorOutputBufArgs[i].node();
+      auto par_out_buf = StoreBufParallelFunctorMap.at(functor_out_buf)[j];
+      auto output_dims_expr = par_out_buf.dims();
       for (auto output_dim_expr : output_dims_expr) {
         auto dim = dim_evaluators_.at(output_dim_expr.node()).evaluate(dim_map);
         // auto dim = EvaluateOutputShape::run(output_dim_expr.node(), dim_map,
@@ -833,12 +841,14 @@ std::vector<CodeGen::CallArg> GraphBuilder::prepareRunArgs(
       }
       auto output_tensor = codegen_->empty_strided(
           output_shape, get_stride_by_shape(output_shape),
-          *output_value->type()->cast<TensorType>()->scalarType(),
-          c10::kStrided, device_, false);
+          par_out_buf.dtype().scalar_type(), c10::kStrided, device_, false);
       list_output.emplace_back(output_tensor);
       runArgs.emplace_back(output_tensor.data_ptr());
     }
-    outputs.push_back(list_output);
+    if (i < nOutputs_)
+      outputs.push_back(list_output);
+    else
+      interms.push_back(list_output);
   }
   LONG_TAIL_LOG_INFO("solve input done");
   return runArgs;
@@ -847,9 +857,10 @@ std::vector<CodeGen::CallArg> GraphBuilder::prepareRunArgs(
 void GraphBuilder::runKernel(Stack& stack) const {
   LONG_TAIL_LOG_INFO("run kernel begin: ");
   auto inputs = last(stack, nInputs_);
-  std::vector<std::vector<at::Tensor>> outputs;
+  std::vector<std::vector<at::Tensor>> outputs, interms;
   LONG_TAIL_LOG_INFO("Preparing call args ... ... ");
-  std::vector<CodeGen::CallArg> runArgs = prepareRunArgs(inputs, outputs);
+  std::vector<CodeGen::CallArg> runArgs =
+      prepareRunArgs(inputs, outputs, interms);
   {
     LONG_TAIL_LOG_INFO("Preparing call args DONE!!! ");
     LONG_TAIL_LOG_INFO("run kernel call begin ... ");

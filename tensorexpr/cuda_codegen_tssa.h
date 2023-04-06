@@ -172,6 +172,8 @@ class CudaPrinterTssa : public IRPrinter {
 
   void visit(ExternalCallPtr v) override;
 
+  void visit(FloatImmPtr v) override;
+
   VarPtr rand_func() const { return rand_func_; }
 
   std::string dtypeToCppString(const Dtype& dtype) override;

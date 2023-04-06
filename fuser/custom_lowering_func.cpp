@@ -78,29 +78,89 @@ static ExprHandle min(const ExprHandle& lhs, const ExprHandle& rhs) {
   return Min::make(lhs, rhs, true);
 }
 
+static ExprHandle lowestVal(ScalarType type) {
+  switch (type) {
+#define MAX_BY_TYPE_CASE(Type, Name) \
+  case ScalarType::Name:             \
+    return ExprHandle(std::numeric_limits<Type>::lowest());
+    AT_FORALL_SCALAR_TYPES_AND3(Bool, Half, BFloat16, MAX_BY_TYPE_CASE)
+#undef MAX_BY_TYPE_CASE
+    default:
+      throw unsupported_dtype();
+  }
+}
+
+static std::vector<VarHandle> moveReduceAxisToDim(
+    const std::vector<VarHandle>& axes, int64_t dim, bool keepdim) {
+  auto result = axes;
+  auto reduceAxis = axes.back();
+  result.pop_back();
+  if (keepdim)
+    result.at(dim) = reduceAxis;
+  else
+    result.insert(result.begin() + dim, reduceAxis);
+  return result;
+}
+
 static Tensor computeMaxDim(CUSTOM_LOWERING_PARAMS) {
   // Process arguments
   auto self = GET_BUF_AT(0);
   auto selfShape = self.dims();
-  auto rank = self.dims().size();
+  auto rank = selfShape.size();
   auto dim = GET_INT_CONST_AT(1);
   if (dim < 0) dim += rank;
   auto keepdim = GET_BOOL_CONST_AT(2);
   auto reduceDim = selfShape.at(dim);
 
   // Compute reduction
-  auto body = [&](ParameterList& axes) {
-    auto loadAxes = axes;
-    auto reduceAxis = loadAxes.back();
-    loadAxes.pop_back();
-    if (keepdim)
-      loadAxes.at(dim) = reduceAxis;
-    else
-      loadAxes.insert(loadAxes.begin() + dim, reduceAxis);
-    return self.load(loadAxes);
-  };
-  return Reduce("max_dim", outShape, Maximum(Dtype(outDtype)), std::move(body),
+  return Reduce("max_dim", outShape, Maximum(lowestVal(outDtype)),
+                [&](ParameterList& axes) {
+                  return self.load(moveReduceAxisToDim(axes, dim, keepdim));
+                },
                 {reduceDim});
+}
+
+static Tensor computeSoftmax(CUSTOM_LOWERING_PARAMS) {
+  // Process arguments
+  auto self = GET_BUF_AT(0);
+  auto selfShape = self.dims();
+  auto rank = selfShape.size();
+  auto dim = GET_INT_CONST_AT(1);
+  if (dim < 0) dim += rank;
+
+  // Compute reduced shape and axes
+  auto reduceDim = selfShape.at(dim);
+  auto reducedShape = selfShape;
+  reducedShape.erase(reducedShape.begin() + dim);
+  auto removeDimAxis = [&](ParameterList& axes) {
+    std::vector<ExprHandle> result(axes.begin(), axes.end());
+    result.erase(result.begin() + dim);
+    return result;
+  };
+
+  // Define compute for softmax
+  auto dimMax =
+      Reduce("softmax_max", reducedShape, Maximum(lowestVal(outDtype)),
+             [&](ParameterList& axes) {
+               return self.load(moveReduceAxisToDim(axes, dim, false));
+             },
+             {reduceDim});
+  auto expSubMax = Compute("softmax_exp", selfShape, [&](ParameterList& axes) {
+    return exp(self.load(axes) - dimMax.load(removeDimAxis(axes)));
+  });
+  auto dimSum =
+      Reduce("softmax_sum", reducedShape, Sum(),
+             [&](ParameterList& axes) {
+               return expSubMax.load(moveReduceAxisToDim(axes, dim, false));
+             },
+             {reduceDim});
+  auto result = Compute("softmax", selfShape, [&](ParameterList& axes) {
+    return expSubMax.load(axes) / dimSum.load(removeDimAxis(axes));
+  });
+
+  std::vector<StmtPtr> stmts{dimMax.stmt(), expSubMax.stmt(), dimSum.stmt(),
+                             result.stmt()};
+  return Tensor(result.buf(), Block::make(std::move(stmts)));
 }
 
 static Tensor computeSelect(CUSTOM_LOWERING_PARAMS) {
@@ -386,6 +446,9 @@ OperatorMap<CustomLoweringFunction> customLoweringFuncs{
     {"aten::max.dim(Tensor self, int dim, bool keepdim=False) -> (Tensor "
      "values, Tensor indices)",
      computeMaxDim},
+    {"aten::softmax.int(Tensor self, int dim, ScalarType? dtype=None) -> "
+     "Tensor",
+     computeSoftmax},
     {"aten::select.int(Tensor(a) self, int dim, int index) -> Tensor(a)",
      computeSelect},
     {"aten::slice.Tensor(Tensor(a) self, int dim=0, SymInt? start=None, "

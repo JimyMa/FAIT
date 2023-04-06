@@ -489,6 +489,10 @@ void CudaPrinterTssa::visit(LetPtr v) {
   os() << ";" << std::endl;
 }
 
+void CudaPrinterTssa::visit(FloatImmPtr v) {
+  os() << std::setprecision(8) << v->value();
+}
+
 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
 class PrioritizeLoad : public IRMutator {
  public:

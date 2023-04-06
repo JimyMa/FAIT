@@ -66,7 +66,7 @@
   "softmax": {
     "schema": "aten::softmax.int(Tensor self, int dim, ScalarType? dtype=None) -> Tensor",
     "cases": [
-      [ [ { "shape": [ 2, 3, 4 ], "dtype": "Float" }, 1 ], { } ]
+      [ [ { "shape": [ 2, 20 ], "dtype": "Float" }, 1 ], { } ]
     ]
   },
   "select": {
