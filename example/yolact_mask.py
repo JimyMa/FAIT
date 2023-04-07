@@ -68,8 +68,7 @@ def fast_nms(multi_bboxes: Tensor,
     iou.triu_(diagonal=1)
     iou_max, _ = iou.max(dim=1)
 
-    keep = iou_max <= iou_thr
-    keep *= scores > score_thr
+    keep = (iou_max <= iou_thr) & (scores > score_thr)
     classes = torch.arange(
         num_classes, device=boxes.device)[:, None].expand_as(keep)
     classes = classes[keep]

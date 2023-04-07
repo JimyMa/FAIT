@@ -55,6 +55,7 @@ class FunctorParallizationShapeMutator : public IRMutator {
       : degree_(degree), idx_(idx), dims_map_(dims_map) {}
 
   ExprPtr mutate(VarPtr v) override;
+  ExprPtr mutate(BufPtr v) override;
 
  private:
   int64_t degree_;

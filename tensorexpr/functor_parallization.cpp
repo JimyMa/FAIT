@@ -16,6 +16,22 @@ ExprPtr FunctorParallizationShapeMutator::mutate(VarPtr v) {
   return v;
 }
 
+ExprPtr FunctorParallizationShapeMutator::mutate(BufPtr v) {
+  auto buf_op = v;
+  std::vector<ExprPtr> new_dims;
+  for (auto dim : buf_op->dims()) {
+    new_dims.emplace_back(dim->accept_mutator(this));
+  }
+  buf_op->set_dims(new_dims);
+
+  std::vector<ExprPtr> new_strides;
+  for (auto &stride : buf_op->strides())
+    new_strides.push_back(stride->accept_mutator(this));
+  buf_op->set_strides(new_strides);
+
+  return buf_op;
+}
+
 ExprPtr FunctorParallizationMutator::mutate(VarPtr v) {
   if (var_args_map_.count(v)) {
     return var_args_map_[v][idx_].node();
@@ -33,8 +49,13 @@ ExprPtr FunctorParallizationMutator::mutate(BufPtr v) {
     for (auto dim : buf_op->dims()) {
       new_dims.emplace_back(dim->accept_mutator(this));
     }
-
     buf_op->set_dims(new_dims);
+
+    std::vector<ExprPtr> new_strides;
+    for (auto &stride : buf_op->strides())
+      new_strides.push_back(stride->accept_mutator(this));
+    buf_op->set_strides(new_strides);
+
     return buf_op;
   }
 
@@ -46,8 +67,13 @@ ExprPtr FunctorParallizationMutator::mutate(BufPtr v) {
     for (auto dim : buf_op->dims()) {
       new_dims.emplace_back(dim->accept_mutator(this));
     }
-
     buf_op->set_dims(new_dims);
+
+    std::vector<ExprPtr> new_strides;
+    for (auto &stride : buf_op->strides())
+      new_strides.push_back(stride->accept_mutator(this));
+    buf_op->set_strides(new_strides);
+
     return buf_op;
   }
 

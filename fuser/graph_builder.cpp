@@ -369,6 +369,8 @@ void GraphBuilder::compile() {
         } else if (shapeFuncs.contains(*node->maybeOperator())) {
           outputShape =
               (*shapeFuncs.find(*node->maybeOperator()))(node, exprs_);
+          for (auto& dim : outputShape)
+            dim = ExprHandle(extractCommonCond(dim.node()));
         } else {
           LONG_TAIL_ABORT("No nnc shape function to support node "
                           << *node->maybeSchema() << std::endl);
@@ -438,7 +440,6 @@ void GraphBuilder::compile() {
   // Step 4: Functor Parallelization
   // CodeGen
   LoopNest l(block_, bufOutputs_);
-  l.simplify();
   LoopNest::sanitizeNames(l.root_stmt());
   {
     LONG_TAIL_LOG_INFO("Original Functor: ");
@@ -446,7 +447,6 @@ void GraphBuilder::compile() {
   }
   // std::cout << to_string(l.root_stmt()) << std::endl;
 
-  l.simplify();
   l.inlineIntermediateBufs(true);
 
   auto stmt_ = l.root_stmt();

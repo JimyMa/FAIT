@@ -86,8 +86,19 @@ static OperatorSet convertOrFillOps{
     "memory_format=None) -> Tensor",
 };
 
+static std::unordered_map<TypeKind, c10::ScalarType> typeKindsToScalarTypes{
+    {TypeKind::FloatType, c10::kFloat},
+    {TypeKind::IntType, c10::kLong},
+    {TypeKind::BoolType, c10::kBool},
+};
+
 static void updateDtypeFromArgs(Node *node, const FunctionSchema &schema,
                                 c10::ScalarType &dtype) {
+  //  Check if there is `stop` for `arange`
+  auto endIdx = schema.argumentIndexWithName("end");
+  if (endIdx)
+    dtype = typeKindsToScalarTypes.at(node->input(*endIdx)->type()->kind());
+
   // Check if there is source tensor (`self`)
   auto selfIdx = schema.argumentIndexWithName("self");
   if (selfIdx)
@@ -138,12 +149,6 @@ static c10::SymbolicShape inferShapeTensorOps(INFER_PARAMS) {
     return getRankedShape(0);
   }
 }
-
-static std::unordered_map<TypeKind, c10::ScalarType> typeKindsToScalarTypes{
-    {TypeKind::FloatType, c10::kFloat},
-    {TypeKind::IntType, c10::kLong},
-    {TypeKind::BoolType, c10::kBool},
-};
 
 static c10::ScalarType inferDtypeTensorOps(INFER_PARAMS) {
   auto value = node->input(0);
