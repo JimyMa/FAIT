@@ -490,7 +490,7 @@ void CudaPrinterTssa::visit(LetPtr v) {
 }
 
 void CudaPrinterTssa::visit(FloatImmPtr v) {
-  os() << std::setprecision(8) << v->value();
+  os() << "float(" << std::setprecision(8) << v->value() << ")";
 }
 
 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)

@@ -30,6 +30,28 @@ bool isReductionLoop(ForPtr loop) {
   return checker;
 }
 
+namespace {
+
+class StoreBufCollector : public IRVisitor {
+ public:
+  StoreBufCollector(std::unordered_set<BufPtr> &storedBufs)
+      : storedBufs(storedBufs) {}
+
+  void visit(StorePtr store) override { storedBufs.insert(store->buf()); }
+
+ private:
+  std::unordered_set<BufPtr> &storedBufs;
+};
+
+}  // namespace
+
+std::unordered_set<BufPtr> getStoredBufs(StmtPtr stmt) {
+  std::unordered_set<BufPtr> storedBufs;
+  StoreBufCollector collector(storedBufs);
+  stmt->accept(&collector);
+  return std::move(storedBufs);
+}
+
 }  // namespace tensorexpr
 }  // namespace jit
 }  // namespace torch

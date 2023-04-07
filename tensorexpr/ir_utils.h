@@ -31,6 +31,11 @@ struct ExprEq {
 /// @return Whether `loop` is a reduction loop.
 bool isReductionLoop(ForPtr loop);
 
+/// @brief Get all buffers that a statement stores.
+/// @param stmt The statement to be analyzed.
+/// @return A set of stored buffers.
+std::unordered_set<BufPtr> getStoredBufs(StmtPtr stmt);
+
 }  // namespace tensorexpr
 }  // namespace jit
 }  // namespace torch

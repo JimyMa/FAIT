@@ -47,12 +47,12 @@
 #include "fuser/codegen.h"
 #include "passes/te_op.h"
 #include "passes/tensor_ssa.h"
-#include "tensorexpr/collect_interm_buf.h"
 #include "tensorexpr/cuda_codegen_tssa.h"
 #include "tensorexpr/elim_common_subexpr.h"
 #include "tensorexpr/evaluate_output_shape.h"
 #include "tensorexpr/extract_common_cond.h"
 #include "tensorexpr/functor_parallization.h"
+#include "tensorexpr/interm_bufs.h"
 #include "tensorexpr/parallel_for_equal_substitution.h"
 #include "tensorexpr/reconstruct_extent.h"
 #include "tensorexpr/tuple_expr.h"
@@ -146,22 +146,16 @@ std::vector<ArgValue> GraphBuilder::get_input_expr(Node* node) {
 
         auto get_expr_by_flatten_tensor = [&](at::Tensor t,
                                               int64_t idx) -> ExprHandle {
+
+#define GET_ELEM(Type, Name) \
+  case c10::k##Name:         \
+    return Name##Imm::make(t[idx].item().to##Name());
           switch (t.scalar_type()) {
-            case c10::kFloat: {
-              return FloatImm::make(t[idx].item().toFloat());
-            }
-            case c10::kDouble: {
-              return DoubleImm::make(t[idx].item().toFloat());
-            }
-            case c10::kInt: {
-              return IntImm::make(t[idx].item().toInt());
-            }
-            case c10::kBool: {
-              return BoolImm::make(t[idx].item().toBool());
-            }
+            AT_FORALL_SCALAR_TYPES_AND3(Bool, Half, BFloat16, GET_ELEM)
             default:
               TORCH_CHECK(false, "Unsupport dtype:", t.scalar_type());
           }
+#undef GET_ELEM
         };
 
         auto flatten_axes = [&](std::vector<VarHandle> axes,
@@ -465,6 +459,8 @@ void GraphBuilder::compile() {
   // std::cout << to_string(l.root_stmt()) << std::endl;
 
   // Collect intermediate buffers and create new loop nest
+  std::vector<BufPtr> resultBufs;
+  for (auto& buf : FunctorOutputBufArgs) resultBufs.push_back(buf.node());
   auto intermBufs = collectIntermBufs(stmt_, bufOutputs_);
   for (auto& interm : intermBufs) {
     bufOutputs_.insert(interm);
@@ -605,31 +601,34 @@ void GraphBuilder::compile() {
     StoreBufParallelFunctorMap[functor_buf] = par_bufs;
   }
 
-  auto stmt_red_ = FunctorParallization::Parallel_functor(
-      stmt_, degree_, new_loop_axis.node(), LoadBufParallelFunctorMap,
-      LoadVarParallelFunctorMap, StoreBufParallelFunctorMap,
-      ShapeVarParallelFunctorMap);
-  eliminateCommonSubexpr(stmt_);
+  // Split root statements according to presence of intermediate buffers
+  auto rootStmts =
+      splitAtIntermBufs(static_to<For>(stmt_), intermBufs, resultBufs);
+
+  // Create parallelized statements
+  for (auto& stmt : rootStmts) {
+    stmt = FunctorParallization::Parallel_functor(
+        stmt, degree_, new_loop_axis.node(), LoadBufParallelFunctorMap,
+        LoadVarParallelFunctorMap, StoreBufParallelFunctorMap,
+        ShapeVarParallelFunctorMap);
+    stmt = eliminateCommonSubexpr(stmt);
+  }
 
   // l.simplify();
   {
     LONG_TAIL_LOG_INFO("after parallization: ");
-    LONG_TAIL_LOG_INFO(to_string(stmt_));
+    for (auto& stmt : rootStmts) LONG_TAIL_LOG_INFO(to_string(stmt));
   }
 
-  auto to_buf_ptr = [](std::vector<BufHandle> buf_list) {
-    std::unordered_set<BufPtr> buf_ptr_list;
-    for (auto buf : buf_list) {
-      buf_ptr_list.insert(buf.node());
-    }
-    return buf_ptr_list;
-  };
-  LoopNest pl(stmt_, to_buf_ptr(FunctorOutputBufArgs));
-  pl.prepareForCodegen();
-  pl.simplify();
+  for (auto& stmt : rootStmts) {
+    LoopNest nest(stmt, getStoredBufs(stmt));
+    nest.prepareForCodegen();
+    nest.simplify();
+  }
+
   {
     LONG_TAIL_LOG_INFO("after pre codegen: ");
-    LONG_TAIL_LOG_INFO(to_string(stmt_));
+    for (auto& stmt : rootStmts) LONG_TAIL_LOG_INFO(to_string(stmt));
   }
 
   // input
@@ -673,14 +672,13 @@ void GraphBuilder::compile() {
     }
   }
 
-  // std::cout << to_string(stmt_) << std::endl;
-
-  codegen_ = std::make_unique<CudaCodeGenTssa>(stmt_, ParallelBufferArgs_,
-                                               device_, "func");
+  for (auto& stmt : rootStmts)
+    codegens_.push_back(
+        std::make_unique<CudaCodeGenTssa>(stmt, ParallelBufferArgs_, device_));
 
   {
     LONG_TAIL_LOG_INFO("after codegen: ");
-    LONG_TAIL_LOG_INFO(codegen_->getCodeText());
+    for (auto& codegen : codegens_) LONG_TAIL_LOG_INFO(codegen->getCodeText());
   }
 
   for (auto& store_bufs : StoreBufParallelFunctorMap) {
@@ -839,7 +837,7 @@ std::vector<CodeGen::CallArg> GraphBuilder::prepareRunArgs(
         //           << std::endl;
         // std::cout << "output dim: " << dim << std::endl;
       }
-      auto output_tensor = codegen_->empty_strided(
+      auto output_tensor = codegens_.back()->empty_strided(
           output_shape, get_stride_by_shape(output_shape),
           par_out_buf.dtype().scalar_type(), c10::kStrided, device_, false);
       list_output.emplace_back(output_tensor);
@@ -859,16 +857,16 @@ void GraphBuilder::runKernel(Stack& stack) const {
   auto inputs = last(stack, nInputs_);
   std::vector<std::vector<at::Tensor>> outputs, interms;
   LONG_TAIL_LOG_INFO("Preparing call args ... ... ");
-  std::vector<CodeGen::CallArg> runArgs =
-      prepareRunArgs(inputs, outputs, interms);
+  auto runArgs = prepareRunArgs(inputs, outputs, interms);
   {
     LONG_TAIL_LOG_INFO("Preparing call args DONE!!! ");
     LONG_TAIL_LOG_INFO("run kernel call begin ... ");
   }
 
-  codegen_->call(runArgs);
+  for (auto& codegen : codegens_) codegen->call(runArgs);
   at::cuda::device_synchronize();
   LONG_TAIL_LOG_INFO("run kernel call end ...");
+
   drop(stack, nInputs_);
   for (auto& o : outputs) {
     if (is_parallel_map_) {

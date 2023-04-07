@@ -128,7 +128,7 @@ class GraphBuilder {
 
   std::shared_ptr<Graph> graph_;
 
-  std::unique_ptr<CudaCodeGenTssa> codegen_;
+  mutable std::vector<std::unique_ptr<CudaCodeGenTssa>> codegens_;
 };
 
 }  // namespace jit
