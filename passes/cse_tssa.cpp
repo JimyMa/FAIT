@@ -7,7 +7,14 @@
 namespace torch {
 namespace jit {
 
+using SubexprSet = std::unordered_set<Node *, HashNode, EqualNode>;
+
+static std::unordered_set<Symbol> ignoredSymbols{prim::ListConstruct};
+
 static bool mayConsider(Node *node) {
+  // Skip certain symbols
+  if (ignoredSymbols.count(node->kind())) return false;
+
   // Skip mutating nodes
   if (isMutating(node)) return false;
 
@@ -25,20 +32,29 @@ static bool mayConsider(Node *node) {
   return true;
 }
 
-void EliminateCommonSubexprTSSA(const std::shared_ptr<Graph> &graph) {
-  std::unordered_set<Node *, HashNode, EqualNode> subexprs;
-  rewrite(graph->block(), [&](Node *node) -> Node * {
-    if (!mayConsider(node)) return nullptr;
+void eliminateCommonSubexprIn(Block *block, SubexprSet &subexprs) {
+  std::vector<Node *> scope;
+  auto nodes = block->nodes();
+  for (auto node = nodes.front(); node != nodes.back(); node = node->next()) {
+    for (auto nested : node->blocks())
+      eliminateCommonSubexprIn(nested, subexprs);
+    if (!mayConsider(node)) continue;
     auto iter = subexprs.find(node);
     if (iter != subexprs.end()) {
       auto existing = *iter;
       node->replaceAllUsesWith(existing);
-      return remove(node);
+      node = remove(node);
     } else {
       subexprs.insert(node);
-      return nullptr;
+      scope.push_back(node);
     }
-  });
+  }
+  for (auto node : scope) subexprs.erase(node);
+}
+
+void EliminateCommonSubexprTSSA(const std::shared_ptr<Graph> &graph) {
+  SubexprSet subexprs;
+  eliminateCommonSubexprIn(graph->block(), subexprs);
 }
 
 }  // namespace jit

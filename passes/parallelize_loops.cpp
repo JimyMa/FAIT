@@ -379,12 +379,13 @@ void CanonicalizeFusableMaps(const std::shared_ptr<Graph> &graph) {
 
     // Reorder loop inputs
     for (auto param : mapBlock->inputs().slice(1)) {
-      TORCH_CHECK(index->uses().size() == 1);
+      TORCH_CHECK(param->uses().size() == 1);
       groupArgPerm.push_back(param->uses().front().offset);
     }
-    for (auto i :
-         c10::irange(mapBlock->inputs().size(), group->inputs().size()))
-      groupArgPerm.push_back(i);
+    for (auto i : c10::irange(group->inputs().size())) {
+      if (!std::count(groupArgPerm.begin(), groupArgPerm.end(), i))
+        groupArgPerm.push_back(i);
+    }
     group->permuteInputs(groupArgPerm);
     groupBlock->permuteInputs(groupArgPerm);
 
