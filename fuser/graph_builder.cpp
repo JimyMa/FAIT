@@ -57,6 +57,7 @@
 #include "tensorexpr/reconstruct_extent.h"
 #include "tensorexpr/tuple_expr.h"
 #include "util/logging.h"
+#include "util/name.h"
 
 using namespace torch::jit::tensorexpr;
 
@@ -276,6 +277,8 @@ void GraphBuilder::solveInput(Value* input_) {
     }
   }
 }
+
+static NameGenerator functorNameGen("functor_");
 
 void GraphBuilder::compile() {
   nInputs_ = graph_->inputs().size();
@@ -672,9 +675,10 @@ void GraphBuilder::compile() {
     }
   }
 
+  NameGenerator kernelNameGen(functorNameGen.generate() + "_");
   for (auto& stmt : rootStmts)
-    codegens_.push_back(
-        std::make_unique<CudaCodeGenTssa>(stmt, ParallelBufferArgs_, device_));
+    codegens_.push_back(std::make_unique<CudaCodeGenTssa>(
+        stmt, ParallelBufferArgs_, device_, kernelNameGen.generate()));
 
   {
     LONG_TAIL_LOG_INFO("after codegen: ");

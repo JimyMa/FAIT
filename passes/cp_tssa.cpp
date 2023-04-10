@@ -127,6 +127,7 @@ bool FoldConstantsTSSA(const std::shared_ptr<Graph> &graph) {
       auto cnstVal = tryInsertConstant(*graph, ival);
       if (!cnstVal) continue;
       if (ival.isNone()) (*cnstVal)->setType(node->outputs()[i]->type());
+      // if (ival.isTensor() && ival.toTensor().numel() > 4) continue;
       node->outputs()[i]->replaceAllUsesWith(*cnstVal);
       changed = true;
     }

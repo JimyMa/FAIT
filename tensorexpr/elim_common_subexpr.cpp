@@ -1,5 +1,7 @@
 #include "elim_common_subexpr.h"
 
+#include "util/name.h"
+
 namespace torch {
 namespace jit {
 namespace tensorexpr {
@@ -7,17 +9,6 @@ namespace tensorexpr {
 namespace {
 
 using Binding = std::pair<VarPtr, ExprPtr>;
-
-class NameGenerator {
- public:
-  NameGenerator(const std::string &prefix) : prefix(prefix) {}
-
-  std::string generate() { return prefix + std::to_string(count++); }
-
- private:
-  std::string prefix;
-  size_t count = 0;
-};
 
 class VarCreator : public IRVisitor {
  public:
