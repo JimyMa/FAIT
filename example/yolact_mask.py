@@ -257,12 +257,6 @@ class YolactBBoxMask(torch.nn.Module):
             mask_pred = cur_prototypes @ cur_coeff_pred.t()
             mask_pred = torch.sigmoid(mask_pred)
 
-            h, w = 320, 320
-            bboxes_for_cropping[:, 0] /= w
-            bboxes_for_cropping[:, 1] /= h
-            bboxes_for_cropping[:, 2] /= w
-            bboxes_for_cropping[:, 3] /= h
-
             mask_pred = self.crop(mask_pred, bboxes_for_cropping)
             mask_pred = mask_pred.permute(2, 0, 1).contiguous()
             mask_pred_list.append(mask_pred)
@@ -332,8 +326,6 @@ class YolactBBoxMask(torch.nn.Module):
 
     def sanitize_coordinates(self, x1, x2, img_size: int):
         padding = 1
-        x1 = x1 * img_size
-        x2 = x2 * img_size
         x1 = torch.min(x1, x2)
         x2 = torch.max(x1, x2)
         x1 = torch.clamp(x1 - padding, min=0)

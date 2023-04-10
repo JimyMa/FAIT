@@ -78,15 +78,17 @@ static std::string fmtIndices(const std::vector<size_t> &indices) {
   return ss.str();
 }
 
-static void checkValue(const IValue &real, const IValue &ref,
+static void checkValue(const IValue &actual, const IValue &ref,
                        std::vector<size_t> &indices) {
-  TORCH_CHECK(real.tagKind() == ref.tagKind(), "Expect ", ref.tagKind(),
-              ", got ", real.tagKind(), " at ", fmtIndices(indices));
-  if (real.isTensor()) {
-    TORCH_CHECK(at::allclose(real.toTensor(), ref.toTensor(), 1e-3, 1e-5),
-                "Inconsistent tensor value at ", fmtIndices(indices));
-  } else if (real.isList()) {
-    auto realList = real.toListRef(), refList = ref.toListRef();
+  TORCH_CHECK(actual.tagKind() == ref.tagKind(), "Expect ", ref.tagKind(),
+              ", got ", actual.tagKind(), " at ", fmtIndices(indices));
+  if (actual.isTensor()) {
+    TORCH_CHECK(at::allclose(actual.toTensor(), ref.toTensor(), 1e-3, 1e-5),
+                "Inconsistent tensor value at ", fmtIndices(indices),
+                "\nReference: \n", ref.toTensor(), "\nActual: \n",
+                actual.toTensor());
+  } else if (actual.isList()) {
+    auto realList = actual.toListRef(), refList = ref.toListRef();
     TORCH_CHECK(realList.size() == refList.size(), "Expect list of length ",
                 refList.size(), ", got ", realList.size(), " at ",
                 fmtIndices(indices));
@@ -95,8 +97,8 @@ static void checkValue(const IValue &real, const IValue &ref,
       checkValue(realList[i], refList[i], indices);
       indices.pop_back();
     }
-  } else if (real.isTuple()) {
-    auto &realTup = real.toTupleRef().elements(),
+  } else if (actual.isTuple()) {
+    auto &realTup = actual.toTupleRef().elements(),
          &refTup = ref.toTupleRef().elements();
     TORCH_CHECK(realTup.size() == refTup.size(), "Expect tuple of length ",
                 refTup.size(), ", got ", realTup.size(), " at ",
@@ -107,17 +109,17 @@ static void checkValue(const IValue &real, const IValue &ref,
       indices.pop_back();
     }
   } else {
-    TORCH_CHECK(real == ref, "Unequal value at ", fmtIndices(indices));
+    TORCH_CHECK(actual == ref, "Unequal value at ", fmtIndices(indices));
   }
 }
 
-static void checkOutputs(const Stack &realOutputs, const Stack &refOutputs) {
-  TORCH_CHECK(realOutputs.size() == refOutputs.size());
+static void checkOutputs(const Stack &actualOutputs, const Stack &refOutputs) {
+  TORCH_CHECK(actualOutputs.size() == refOutputs.size());
   std::vector<size_t> indices;
   for (auto i : c10::irange(refOutputs.size())) {
-    auto &realVal = realOutputs[i], &refVal = refOutputs[i];
+    auto &actualVal = actualOutputs[i], &refVal = refOutputs[i];
     indices.push_back(i);
-    checkValue(realVal, refVal, indices);
+    checkValue(actualVal, refVal, indices);
     indices.pop_back();
   }
 }
