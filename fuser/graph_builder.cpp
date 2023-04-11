@@ -290,10 +290,14 @@ void GraphBuilder::compile() {
 
   // Step 1: Bind inputs to buffers.
   block_ = alloc<torch::jit::tensorexpr::Block>(std::vector<StmtPtr>({}));
+  auto new_loop_axis = VarHandle("new_axis_i", kLong);
+
+  exprs_[graph_->inputs()[0]] = ExprHandle(new_loop_axis);
+  nInputs_ -= 1;
 
   // Get Shape VarHandle
   auto parallel_args_idx = 0;
-  auto graph_args_idx = 0;
+  auto graph_args_idx = 1;
   for (auto is_paralleled_arg : is_parallelled_args_) {
     auto graph_arg = graph_->inputs()[graph_args_idx];
     graph_args_idx += 1;
@@ -320,7 +324,8 @@ void GraphBuilder::compile() {
 
   // Input Buffer
   LONG_TAIL_LOG_INFO("Input Buffer begin");
-  for (auto input_ : graph_->inputs()) {
+  for (int i = 1; i < graph_->inputs().size(); i++) {
+    auto input_ = graph_->inputs()[i];
     // AT_ASSERT(input_->type()->cast<TensorType>(), "Parallel Functor Only
     // Tensor Type are Supported by now");
     // AT_ASSERT(input_->type()->cast<TensorType>()->scalarType().has_value(),
@@ -501,7 +506,6 @@ void GraphBuilder::compile() {
     inner->set_gpu_thread_index(0);
   }
 
-  auto new_loop_axis = VarHandle("new_axis_i", kLong);
   stmt_ = alloc<For>(new_loop_axis.node(), LongImm::make(0).node(),
                      LongImm::make(degree_).node(), stmt_);
   static_to<For>(stmt_)->set_gpu_block_index(1);
@@ -521,7 +525,8 @@ void GraphBuilder::compile() {
   }
   // Input Value Replacement
   std::unordered_map<const Value*, BufPtr> input_buf;
-  for (auto input : graph_->inputs()) {
+  for (int i = 1; i < graph_->inputs().size(); i++) {
+    auto input = graph_->inputs()[i];
     if (input->type()->cast<TensorType>()) {
       auto functor_buf = exprs_[input].AsNode<Buf>();
       std::vector<BufHandle> par_bufs;
@@ -710,12 +715,12 @@ std::vector<CodeGen::CallArg> GraphBuilder::prepareRunArgs(
 
   std::vector<CodeGen::CallArg> shapeRunArgs;
   std::unordered_map<VarPtr, int64_t> dim_map;
-  auto input_size = inputs.size();
-  for (int input_idx = 0; input_idx < input_size; input_idx++) {
+  for (int input_idx = 1; input_idx < graph_->inputs().size(); input_idx++) {
     Value* input_value = graph_->inputs()[input_idx];
     // std::cout << "input_value: " << input_value->debugName() << std::endl;
-    auto input = inputs[input_idx];
-    auto functor_input = FunctorInputArgs[input_idx];
+    auto functor_idx = input_idx - 1;
+    auto input = inputs[functor_idx];
+    auto functor_input = FunctorInputArgs[functor_idx];
     if (input.isTensorList()) {
       auto list_input = input.toTensorList();
       auto functor_shape_expr = FunctorShapeMap_.at(input_value);
@@ -725,7 +730,7 @@ std::vector<CodeGen::CallArg> GraphBuilder::prepareRunArgs(
         runArgs.emplace_back(tensor_input.data_ptr());
       }
 
-      auto tensor_type = refined_types_[input_idx]->cast<TensorType>();
+      auto tensor_type = refined_types_[functor_idx]->cast<TensorType>();
       // std::cout << "input shape: " << std::endl;
       for (int64_t dim_idx = 0; dim_idx < tensor_type->sizes().size();
            dim_idx++) {
@@ -737,13 +742,6 @@ std::vector<CodeGen::CallArg> GraphBuilder::prepareRunArgs(
             shapeRunArgs.emplace_back(dim_value);
             VarPtr functor_shape_var =
                 functor_shape_expr[dim_idx].AsNode<Var>();
-            // std::cout << "degree: " << i << std::endl;
-            // std::cout << "value expr: "
-            //           << to_string(
-            //                  ShapeVarParallelFunctorMap.at(functor_shape_var)[i]
-            //                      .node())
-            //           << std::endl;
-            // std::cout << "value: " << dim_value << std::endl;
             dim_map[ShapeVarParallelFunctorMap.at(functor_shape_var)[i]
                         .node()] = dim_value;
           }
@@ -800,7 +798,7 @@ std::vector<CodeGen::CallArg> GraphBuilder::prepareRunArgs(
 
       std::vector<CodeGen::CallArg> shape_args_per_degree;
       runArgs.emplace_back(tensor_input.data_ptr());
-      auto tensor_type = refined_types_[input_idx]->cast<TensorType>();
+      auto tensor_type = refined_types_[functor_idx]->cast<TensorType>();
       auto tensor_type_dim_size = tensor_type->sizes().size();
       for (int64_t dim_idx = 0; dim_idx < tensor_type_dim_size; dim_idx++) {
         if (!tensor_type->symbolic_sizes()[dim_idx].is_static()) {
@@ -868,7 +866,6 @@ void GraphBuilder::runKernel(Stack& stack) const {
   }
 
   for (auto& codegen : codegens_) codegen->call(runArgs);
-  at::cuda::device_synchronize();
   LONG_TAIL_LOG_INFO("run kernel call end ...");
 
   drop(stack, nInputs_);

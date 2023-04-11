@@ -18,6 +18,13 @@
 namespace torch {
 namespace jit {
 
+struct ParallelFunctor {
+  ParallelFunctor(Node* functor_op, Value* idx)
+      : functor_op_(functor_op), idx_(idx) {}
+  Node* functor_op_;
+  Value* idx_;
+};
+
 static Node* GetParallelledFunctorByParallelMap(
     Node* node, std::unordered_map<Value*, TypePtr>& refine_types) {
   // Construct an op
@@ -28,6 +35,7 @@ static Node* GetParallelledFunctorByParallelMap(
 
   auto input_degree = *constant_as<int64_t>(node->input(0));
   std::vector<TypePtr> input_refine_types;
+
   for (int i = 1; i < node->inputs().size(); i++) {
     auto input_ = node->input(i);
     functor_op->addInput(input_);
@@ -83,7 +91,7 @@ static Node* GetParallelledFunctorByParallelMap(
   std::reverse(is_parallelled_args.begin(), is_parallelled_args.end());
   functor_op->is_(c10::tssa::is_parallelled_args, is_parallelled_args);
 
-  for (int i = 1; i < fusion_group->blocks()[0]->inputs().size(); i++) {
+  for (int i = 0; i < fusion_group->blocks()[0]->inputs().size(); i++) {
     auto input_ = fusion_group->blocks()[0]->inputs()[i];
     auto subgraph_input = subgraph->addInput();
     subgraph_input->copyMetadata(input_);
@@ -192,6 +200,8 @@ static Node* GetParallelledFunctorByFusedOp(
                                            1);
   functor_op->is_(c10::tssa::is_parallelled_args, is_parallelled_args);
 
+  // placeholder for axis
+  subgraph->addInput();
   for (auto input_ : node->blocks()[0]->inputs()) {
     auto subgraph_input = subgraph->addInput();
     subgraph_input->copyMetadata(input_);
@@ -244,7 +254,11 @@ static void FusedOpToParallizationBlock(
 
 void FusedOpToParallization(const std::shared_ptr<Graph>& graph,
                             std::unordered_map<Value*, TypePtr>& refine_types) {
+  // std::cout << "before fuse: " << std::endl;
+  // graph->dump();
   FusedOpToParallizationBlock(graph->block(), refine_types);
+  //   std::cout << "after fuse: " << std::endl;
+  //   graph->dump();
 }
 
 static Operation CreateTeOperator(const Node* node) {
