@@ -169,11 +169,22 @@ static bool isFusable(Node *node, bool isOut,
     return true;
 }
 
-static bool shouldFuseGroup(Node *head, Node *tail) {
+static bool shouldFuseGroup(Node *head, Node *tail,
+                            const std::unordered_set<Node *> fusedNodes) {
+  // Check number of working nodes
   size_t numWorking = 0;
   for (auto node = head; node != tail; node = node->next())
     numWorking += workingSymbols.count(node->kind());
-  return numWorking > 1;
+  if (numWorking <= 1) return false;
+
+  // Check if all TSSA-updated values are defined in the group
+  for (auto node = head; node != tail; node = node->next()) {
+    if (node->kind() == tssa::Update &&
+        !fusedNodes.count(node->input(0)->node()))
+      return false;
+  }
+
+  return true;
 }
 
 static void findGroupInOutValues(Node *head, Node *tail,
@@ -308,7 +319,7 @@ static void fuseOpsIn(Block *block, Graph *graph, ValueTypeMap &refinedTypes) {
     }
 
     // Check if current group can be fused
-    if (!shouldFuseGroup(head, tail)) continue;
+    if (!shouldFuseGroup(head, tail, fusedNodes)) continue;
 
     // Commit fusion
     head = commitFusion(head, tail, graph, refinedTypes);
