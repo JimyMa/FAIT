@@ -177,10 +177,10 @@ static bool shouldFuseGroup(Node *head, Node *tail,
     numWorking += workingSymbols.count(node->kind());
   if (numWorking <= 1) return false;
 
-  // Check if all TSSA-updated values are defined in the group
+  // Check if any constant is updated
   for (auto node = head; node != tail; node = node->next()) {
     if (node->kind() == tssa::Update &&
-        !fusedNodes.count(node->input(0)->node()))
+        node->input(0)->node()->kind() == prim::Constant)
       return false;
   }
 
