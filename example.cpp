@@ -60,7 +60,6 @@ static IValue genValueOfType(const TypePtr &type) {
 
 static Stack generateRandomInputs(const std::vector<TypePtr> &inputTypes) {
   Stack inputs;
-  inputs.push_back({});
   for (auto &type : inputTypes) inputs.push_back(genValueOfType(type));
   return inputs;
 }
@@ -232,12 +231,10 @@ int main(int argc, const char *argv[]) {
     FusedOpToParallization(graph, refinedTypes);
     dumpGraphToFile(graph, "after_codegen.rb");
     Validate(graph);
-  } catch (c10::Error &err) {
+  } catch (std::exception &err) {
     std::cout << err.what();
     dumpGraphToFile(graph, "error.rb");
-  } catch (ErrorReport &err) {
-    std::cout << err.what();
-    dumpGraphToFile(graph, "error.rb");
+    return 1;
   }
 
   // Runtime

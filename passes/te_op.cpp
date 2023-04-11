@@ -219,6 +219,7 @@ static Node* GetParallelledFunctorByFusedOp(
     subgraph->registerOutput(values_map[output]);
   }
   SolveUpdate(subgraph);
+  EliminateDeadCodeTSSA(subgraph);
   ConstantPooling(subgraph);
   return functor_op;
 }

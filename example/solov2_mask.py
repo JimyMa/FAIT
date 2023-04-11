@@ -164,18 +164,19 @@ class SOLOV2Mask(torch.nn.Module):
         strides = kernel_preds.new_ones(lvl_interval[-1])
 
         strides[:lvl_interval[0]] *= self.strides[0]
-        for lvl in range(1, self.num_levels):
-            strides[lvl_interval[lvl -
-                                 1]:lvl_interval[lvl]] *= self.strides[lvl]
+        for lvl in range(self.num_levels - 1):
+            strides[lvl_interval[lvl]:lvl_interval[lvl + 1]
+                    ] *= self.strides[lvl + 1]
         strides = strides[inds[:, 0]]
 
         # mask encoding
         if kernel_preds.size(0) != 0:
             kernel_preds = kernel_preds.view(
-                kernel_preds.size(0), -1, self.dynamic_conv_size,
+                kernel_preds.size(0), kernel_preds.size(
+                    1), self.dynamic_conv_size,
                 self.dynamic_conv_size)
             mask_preds = torch.nn.functional.conv2d(
-                mask_feats, kernel_preds, stride=1).squeeze(0).sigmoid()
+                mask_feats, kernel_preds, stride=1).sigmoid()
             # mask.
             masks = mask_preds > 0.5
             sum_masks = masks.sum((1, 2)).float()

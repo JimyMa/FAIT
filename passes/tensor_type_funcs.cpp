@@ -653,6 +653,19 @@ static c10::SymbolicShape inferShapeNonzeroOp(INFER_PARAMS) {
   return ShapeVec{c10::nullopt, inRank};
 }
 
+static OperatorSet maxPool2dOp{
+    "aten::max_pool2d(Tensor self, int[2] kernel_size, int[2] stride=[], "
+    "int[2] padding=0, int[2] dilation=1, bool ceil_mode=False) -> Tensor",
+};
+
+static c10::SymbolicShape inferShapeMaxPool2dOp(INFER_PARAMS) {
+  auto selfShape = getShape(node->input(0)->type());
+  if (!selfShape) return {};
+  *(selfShape->end() - 2) = c10::nullopt;
+  *(selfShape->end() - 1) = c10::nullopt;
+  return *selfShape;
+}
+
 static OperatorSet sameShapeOps{
     "aten::to.device(Tensor(a) self, Device device, ScalarType dtype, bool "
     "non_blocking=False, bool copy=False, MemoryFormat? memory_format=None) -> "
@@ -831,6 +844,7 @@ static std::initializer_list<
         {stackOp, inferShapeStackOp},
         {indexOp, inferShapeIndexOp},
         {nonzeroOp, inferShapeNonzeroOp},
+        {maxPool2dOp, inferShapeMaxPool2dOp},
         {sameShapeOps, passSameShape},
         {rankZeroOps, [](INFER_PARAMS) { return getRankedShape(0); }},
         {rankOneOps, [](INFER_PARAMS) { return getRankedShape(1); }},

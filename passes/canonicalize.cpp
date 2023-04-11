@@ -46,6 +46,35 @@ Node *rewriteNew(REWRITE_PARAMS) {
   return remove(node);
 }
 
+Node *rewritePowTensorScalar(REWRITE_PARAMS) {
+  // Replace with a series of multiplication if exponent is constant
+  auto self = node->input(0);
+  auto exp = constant_as<int64_t>(node->input(1));
+  if (!exp) return nullptr;
+  Value *base = nullptr;
+  while (*exp > 0) {
+    if ((*exp & 1) && base) self = graph->insert(aten::mul, {self, base});
+    if (base)
+      base = graph->insert(aten::mul, {base, base});
+    else
+      base = self;
+    *exp /= 2;
+  }
+  self->node()->copyMetadata(node);
+  node->output(0)->replaceAllUsesWith(self);
+  return remove(node);
+}
+
+Node *rewriteSlice(REWRITE_PARAMS) {
+  // Remove if both start and end are not specified
+  auto start = toIValue(node->input(2)), end = toIValue(node->input(3));
+  if (start && start->isNone() && end && end->isNone()) {
+    node->output(0)->replaceAllUsesWith(node->input(0));
+    return remove(node);
+  }
+  return nullptr;
+}
+
 Node *rewriteT(REWRITE_PARAMS) {
   auto self = node->input(0);
   auto zero = graph->insertConstant(int64_t(0));
@@ -76,16 +105,6 @@ Node *rewriteToOther(REWRITE_PARAMS) {
   return remove(node);
 }
 
-Node *rewriteSlice(REWRITE_PARAMS) {
-  // Remove if both start and end are not specified
-  auto start = toIValue(node->input(2)), end = toIValue(node->input(3));
-  if (start && start->isNone() && end && end->isNone()) {
-    node->output(0)->replaceAllUsesWith(node->input(0));
-    return remove(node);
-  }
-  return nullptr;
-}
-
 Node *rewriteView(REWRITE_PARAMS) {
   node->replaceWithNewSymbol(aten::reshape);
   return nullptr;
@@ -101,6 +120,12 @@ OperatorMap<Node *(*)(REWRITE_PARAMS)> rewriteFuncs{
      "Layout? layout=None, Device? device=None, bool? pin_memory=None) -> "
      "Tensor",
      rewriteNew},
+    {"aten::new_ones(Tensor self, SymInt[] size, *, ScalarType? dtype=None, "
+     "Layout? layout=None, Device? device=None, bool? pin_memory=None) -> "
+     "Tensor",
+     rewriteNew},
+    {"aten::pow.Tensor_Scalar(Tensor self, Scalar exponent) -> Tensor",
+     rewritePowTensorScalar},
     {"aten::slice.Tensor(Tensor(a) self, int dim=0, SymInt? start=None, "
      "SymInt? end=None, SymInt step=1) -> Tensor(a)",
      rewriteSlice},
