@@ -1,6 +1,7 @@
 #include <torch/csrc/jit/runtime/operator.h>
 
 #include "common_passes.h"
+#include "tensor_ssa.h"
 #include "util/ir.h"
 #include "util/traits.h"
 
@@ -67,8 +68,22 @@ static void listConstruct(Stack &stack, const c10::Type &list_type,
 }
 
 static c10::optional<Stack> tryRunNodes(Node *node) {
-  Stack stack;
+  // Do not run on mutating nodes
+  if (isMutating(node)) return c10::nullopt;
+
+  // Do not run on aliasing nodes whose output is assigned/updated
+  if (isAliasing(node)) {
+    auto output = node->output(0);
+    if (std::any_of(output->uses().begin(), output->uses().end(),
+                    [](const Use &use) {
+                      auto kind = use.user->kind();
+                      return kind == tssa::Assign || kind == tssa::Update;
+                    }))
+      return c10::nullopt;
+  }
+
   // Push inputs to stack
+  Stack stack;
   for (auto input : node->inputs()) {
     if (auto ival = toIValue(input))
       stack.push_back(*ival);
