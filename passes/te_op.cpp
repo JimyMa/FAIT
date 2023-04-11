@@ -26,10 +26,7 @@ static Node* GetParallelledFunctorByParallelMap(
 
   auto subgraph = functor_op->g(attr::Subgraph);
 
-  // Get input_degree by tuple lengths, not by iter_times.
-  auto iter_times = node->inputs()[0];
-
-  int input_degree = -1;
+  auto input_degree = *constant_as<int64_t>(node->input(0));
   std::vector<TypePtr> input_refine_types;
   for (int i = 1; i < node->inputs().size(); i++) {
     auto input_ = node->input(i);
@@ -42,13 +39,8 @@ static Node* GetParallelledFunctorByParallelMap(
                 type->annotation_str());
       auto union_type = getUnifiedElementType(type);
       input_refine_types.push_back(union_type);
-      if (input_degree != -1) {
-        AT_ASSERT(
-            input_degree == type->cast<c10::TupleType>()->elements().size(),
-            "Input List in ParallelMap must have same input_degree!");
-      } else {
-        input_degree = type->cast<c10::TupleType>()->elements().size();
-      }
+      AT_ASSERT(input_degree == type->cast<c10::TupleType>()->elements().size(),
+                "Input List in ParallelMap must have same input_degree!");
     }
   }
 
@@ -59,6 +51,7 @@ static Node* GetParallelledFunctorByParallelMap(
   for (auto output : node->outputs()) {
     auto functor_op_output = functor_op->addOutput();
     functor_op_output->copyMetadata(output);
+    transferRefinedType(output, functor_op_output, refine_types);
   }
 
   std::unordered_map<Value*, Value*> values_map;
