@@ -19,7 +19,8 @@ static Node *rewriteMutating(
   Node *assignNode = nullptr;
   switch (node->kind()) {
     case aten::copy_: {
-      assignNode = createTssaAssign(graph, mutated, node->input(1));
+      assignNode =
+          createTssaAssign(graph, mutated, node->input(1))->copyMetadata(node);
       replace(node, assignNode);
       break;
     }
@@ -27,7 +28,8 @@ static Node *rewriteMutating(
     case aten::index_put_: {
       // Create imaginary advanced indexing view
       auto indexNode =
-          graph->create(aten::index, {node->input(0), node->input(1)});
+          graph->create(aten::index, {node->input(0), node->input(1)})
+              ->copyMetadata(node);
       indexNode->insertAfter(node);
       aliasSets.merge(indexNode->input(0), indexNode->output(0));
 
@@ -47,7 +49,7 @@ static Node *rewriteMutating(
       immutOpName.pop_back();
       auto immutSym = Symbol::fromQualString(
           std::string(mutSym.ns().toUnqualString()) + "::" + immutOpName);
-      auto opNode = graph->create(immutSym, node->inputs());
+      auto opNode = graph->create(immutSym, node->inputs())->copyMetadata(node);
       opNode->insertBefore(node);
       TORCH_CHECK(opNode->maybeSchema());
 
@@ -178,6 +180,27 @@ static void renameValues(
   }
 }
 
+static void removeDeadUpdateInLoop(Node *loop) {
+  auto block = loop->blocks().front();
+  for (auto i = 0; i < loop->outputs().size(); i++) {
+    // Check if the value is dead
+    auto loopOut = loop->output(i);
+    if (loopOut->hasUses()) continue;
+    auto blockRet = block->outputs()[i + 1];
+    auto update = blockRet->node();
+    if (update->kind() != tssa::Update) continue;
+    if (update->input(0) != block->inputs()[i + 1]) continue;
+
+    // Erase dead update
+    loop->eraseOutput(i);
+    block->eraseOutput(i + 1);
+    update->destroy();
+    block->eraseInput(i + 1);
+    loop->removeInput(i + 2);
+    i--;
+  }
+}
+
 void ToTensorSSA(const std::shared_ptr<Graph> &graph) {
   // Find all mutated tensors and remove mutation
   DisjointSets<Value *> aliasSets;
@@ -223,6 +246,10 @@ void ToTensorSSA(const std::shared_ptr<Graph> &graph) {
 
   // Eliminate redundant updates
   EliminateDeadCodeTSSA(graph);
+  traversePostOrder(graph->block(), [](Node *loop) {
+    if (loop->kind() == prim::Loop) removeDeadUpdateInLoop(loop);
+    return true;
+  });
 
   // Eliminate redundant assignment
   rewrite(graph->block(), [](Node *node) -> Node * {
