@@ -66,6 +66,7 @@ OperatorSet fusableOps{
     "aten::ge.Scalar(Tensor self, Scalar other) -> Tensor",
     "aten::max.dim(Tensor self, int dim, bool keepdim=False) -> (Tensor "
     "values, Tensor indices)",
+    "aten::mm(Tensor self, Tensor mat2) -> Tensor",
     "aten::select.int(Tensor(a) self, int dim, int index) -> Tensor(a)",
     "aten::slice.Tensor(Tensor(a) self, int dim=0, SymInt? start=None, SymInt? "
     "end=None, SymInt step=1) -> Tensor(a)",
@@ -76,6 +77,7 @@ OperatorSet fusableOps{
     "Tensor(a)",
     "aten::expand_as(Tensor(a) self, Tensor other) -> Tensor(a)",
     "aten::permute(Tensor(a) self, int[] dims) -> Tensor(a)",
+    "aten::transpose.int(Tensor(a) self, int dim0, int dim1) -> Tensor(a)",
     "aten::cat(Tensor[] tensors, int dim=0) -> Tensor",
     "aten::stack(Tensor[] tensors, int dim=0) -> Tensor",
     "aten::repeat(Tensor self, SymInt[] repeats) -> Tensor",
@@ -126,7 +128,8 @@ static std::unordered_map<Symbol, bool (*)(Node *node)> fusabilityCheckers{
      [](Node *node) { return node->input(0)->node()->kind() != aten::index; }},
 };
 
-static bool isFusable(Node *node, bool isOut) {
+static bool isFusable(Node *node, bool isOut,
+                      const std::unordered_set<Node *> fusedNodes) {
   // Check if the symbol is fusable
   auto kind = node->kind();
   auto op = node->maybeOperator();
@@ -148,6 +151,14 @@ static bool isFusable(Node *node, bool isOut) {
     // Fused subgraphs cannot have non-tensor outputs
     for (auto output : node->outputs()) {
       if (!output->type()->castRaw<TensorType>()) return false;
+    }
+  } else {
+    for (auto output : node->outputs()) {
+      if (output->type()->kind() != TypeKind::TensorType &&
+          std::any_of(
+              output->uses().begin(), output->uses().end(),
+              [&](const Use &use) { return !fusedNodes.count(use.user); }))
+        return false;
     }
   }
 
@@ -251,7 +262,7 @@ static void fuseOpsIn(Block *block, Graph *graph, ValueTypeMap &refinedTypes) {
   for (auto tail = block->return_node(), head = tail;
        tail != block->nodes().front(); tail = head) {
     // Record known predecessors
-    std::unordered_set<Node *> knownPreds;
+    std::unordered_set<Node *> knownPreds, fusedNodes;
 
     // Traverse in reverse order to find all fusable nodes
     for (auto node = head->prev(); node != block->param_node();
@@ -266,7 +277,7 @@ static void fuseOpsIn(Block *block, Graph *graph, ValueTypeMap &refinedTypes) {
       }
 
       // Check if current node is fusable
-      if (!isFusable(node, !knownPreds.count(node))) {
+      if (!isFusable(node, !knownPreds.count(node), fusedNodes)) {
         fixRangeIfEmpty();
         continue;
       }
@@ -292,6 +303,7 @@ static void fuseOpsIn(Block *block, Graph *graph, ValueTypeMap &refinedTypes) {
 
       // Move this node to the head of the group
       node->moveBefore(head);
+      fusedNodes.insert(node);
       head = node;
     }
 
