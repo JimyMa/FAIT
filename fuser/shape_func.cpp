@@ -118,6 +118,17 @@ static ShapeVec computeUnsqueezeShape(SHAPE_FUNC_PARAMS) {
   return outShape;
 }
 
+static ShapeVec computeTransposeShape(SHAPE_FUNC_PARAMS) {
+  auto selfShape = GET_BUF_AT(0).dims();
+  auto rank = selfShape.size();
+  auto dim0 = *constant_as<int64_t>(node->input(1)),
+       dim1 = *constant_as<int64_t>(node->input(2));
+  if (dim0 < 0) dim0 += rank;
+  if (dim1 < 0) dim1 += rank;
+  std::swap(selfShape.at(dim0), selfShape.at(dim1));
+  return selfShape;
+}
+
 static ShapeVec computePermuteShape(SHAPE_FUNC_PARAMS) {
   auto src = GET_BUF_AT(0);
   auto new_index = *constant_as<IntList>(node->input(1));
@@ -274,6 +285,8 @@ OperatorMap<NNCShapeFunction> shapeFuncs{
      computeSliceShape},
     {"aten::unsqueeze(Tensor(a) self, int dim) -> Tensor(a)",
      computeUnsqueezeShape},
+    {"aten::transpose.int(Tensor(a) self, int dim0, int dim1) -> Tensor(a)",
+     computeTransposeShape},
     {"aten::permute(Tensor(a) self, int[] dims) -> Tensor(a)",
      computePermuteShape},
     {"aten::reshape(Tensor(a) self, SymInt[] shape) -> Tensor(a)",

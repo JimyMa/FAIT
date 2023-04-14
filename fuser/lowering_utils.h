@@ -2,6 +2,7 @@
 
 #include <torch/csrc/jit/tensorexpr/ir.h>
 
+#include "tensorexpr/tuple_expr.h"
 #include "util/types.h"
 
 namespace torch {
@@ -56,8 +57,13 @@ inline std::vector<ExprHandle> getScalarExprList(
   } else if (node->kind() == prim::ListConstruct) {
     for (auto input : node->inputs())
       result.push_back(getScalarExpr<T>(input, valueToExpr));
+  } else if (valueToExpr.count(value) &&
+             valueToExpr.at(value).AsNode<Tuple>()) {
+    auto tuple = valueToExpr.at(value).AsNode<Tuple>();
+    for (auto& elem : tuple->elements()) result.emplace_back(elem);
   } else {
-    TORCH_CHECK(false);
+    TORCH_CHECK(false, "Cannot get scalar expression list for value ",
+                value->debugName());
   }
   return result;
 }

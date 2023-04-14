@@ -200,14 +200,6 @@ std::vector<ArgValue> GraphBuilder::get_input_expr(Node* node) {
 
 ExprPtr GraphBuilder::solveScalarInput(TypePtr type) {
   switch (type->kind()) {
-    case TypeKind::TupleType: {
-      std::vector<ExprPtr> elements;
-      for (auto element_type : type->cast<TupleType>()->containedTypes()) {
-        auto element = solveScalarInput(element_type);
-        elements.emplace_back(element);
-      }
-      return Tuple::make(elements, ToDtype(ScalarType::Undefined)).node();
-    }
     case TypeKind::FloatType: {
       VarHandle v(set_hash_name("InputVar"), kFloat);
       return v.node();
@@ -219,6 +211,14 @@ ExprPtr GraphBuilder::solveScalarInput(TypePtr type) {
     case TypeKind::IntType: {
       VarHandle v(set_hash_name("InputVar"), kLong);
       return v.node();
+    }
+    case TypeKind::TupleType: {
+      std::vector<ExprPtr> elements;
+      for (auto element_type : type->cast<TupleType>()->containedTypes()) {
+        auto element = solveScalarInput(element_type);
+        elements.emplace_back(element);
+      }
+      return Tuple::make(std::move(elements)).node();
     }
     default: {
       throw unsupported_dtype(type->repr_str());
@@ -245,7 +245,7 @@ static std::vector<VarHandle> getVarListByTupleNode(ExprPtr expr) {
   }
 }
 
-void GraphBuilder::solveInput(Value* input_) {
+void GraphBuilder::solveInput(Value* input_, TypePtr refined) {
   switch (input_->type()->kind()) {
     case TypeKind::TensorType: {
       BufHandle input_buf(
@@ -266,6 +266,13 @@ void GraphBuilder::solveInput(Value* input_) {
     }
     case TypeKind::TupleType: {
       auto expr = solveScalarInput(input_->type());
+      exprs_[input_] = ExprHandle(expr);
+      auto var_list = getVarListByTupleNode(expr);
+      FunctorInputArgs.emplace_back(var_list);
+      break;
+    }
+    case TypeKind::ListType: {
+      auto expr = solveScalarInput(refined);
       exprs_[input_] = ExprHandle(expr);
       auto var_list = getVarListByTupleNode(expr);
       FunctorInputArgs.emplace_back(var_list);
@@ -330,7 +337,7 @@ void GraphBuilder::compile() {
     // Tensor Type are Supported by now");
     // AT_ASSERT(input_->type()->cast<TensorType>()->scalarType().has_value(),
     // "ScalarType must be complete");
-    solveInput(input_);
+    solveInput(input_, refined_types_[i - 1]);
   }
   LONG_TAIL_LOG_INFO("Input Buffer end!!");
   // Step 2: Bind Node to Compute Op
@@ -555,7 +562,8 @@ void GraphBuilder::compile() {
         par_bufs.push_back(par_buf);
       }
       LoadBufParallelFunctorMap[exprs_[input].AsNode<Buf>()] = par_bufs;
-    } else if (input->type()->cast<TupleType>()) {
+    } else if (input->type()->cast<TupleType>() ||
+               input->type()->cast<ListType>()) {
       auto functor_var_list =
           getVarListByTupleNode(exprs_[input].AsNode<Tuple>());
       for (auto functor_expr : functor_var_list) {
@@ -792,6 +800,20 @@ std::vector<CodeGen::CallArg> GraphBuilder::prepareRunArgs(
                       .node()] = value;
         }
       }
+    } else if (input.isList() && input_value->type()->cast<ListType>()) {
+      auto degree = degree_;
+      auto tuple_lens =
+          refined_types_[functor_idx]->cast<TupleType>()->elements().size();
+      auto functor_input_var_list = *c10::get_if<VarList>(&functor_input);
+      for (int i = 0; i < tuple_lens; i++) {
+        for (int j = 0; j < degree_; j++) {
+          auto value = input.toList()[j].get().toListRef()[i].toInt();
+          runArgs.emplace_back(value);
+          dim_map[LoadVarParallelFunctorMap
+                      .at(functor_input_var_list[i].node())[j]
+                      .node()] = value;
+        }
+      }
     } else if (input.isTensor()) {
       auto tensor_input = input.toTensor().contiguous();
       auto functor_shape_expr = FunctorShapeMap_.at(input_value);
@@ -807,6 +829,11 @@ std::vector<CodeGen::CallArg> GraphBuilder::prepareRunArgs(
               tensor_input.size(dim_idx);
           shapeRunArgs.emplace_back(tensor_input.size(dim_idx));
         }
+      }
+    } else if (input.isInt()) {
+      auto double_input = input.toInt();
+      for (int i = 0; i < degree_; i++) {
+        runArgs.emplace_back(double_input);
       }
     } else if (input.isDouble()) {
       auto double_input = input.toDouble();

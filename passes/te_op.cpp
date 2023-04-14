@@ -25,6 +25,12 @@ struct ParallelFunctor {
   Value* idx_;
 };
 
+void runPasses(const std::shared_ptr<Graph>& graph) {
+  SolveUpdate(graph);
+  EliminateDeadCodeTSSA(graph);
+  ConstantPooling(graph);
+}
+
 static Node* GetParallelledFunctorByParallelMap(
     Node* node, std::unordered_map<Value*, TypePtr>& refine_types) {
   // Construct an op
@@ -121,9 +127,7 @@ static Node* GetParallelledFunctorByParallelMap(
     subgraph->registerOutput(values_map[output]);
   }
 
-  SolveUpdate(subgraph);
-  EliminateDeadCodeTSSA(subgraph);
-  ConstantPooling(subgraph);
+  runPasses(subgraph);
 
   return functor_op;
 }
@@ -228,9 +232,9 @@ static Node* GetParallelledFunctorByFusedOp(
   for (auto output : node->blocks()[0]->outputs()) {
     subgraph->registerOutput(values_map[output]);
   }
-  SolveUpdate(subgraph);
-  EliminateDeadCodeTSSA(subgraph);
-  ConstantPooling(subgraph);
+
+  runPasses(subgraph);
+
   return functor_op;
 }
 
