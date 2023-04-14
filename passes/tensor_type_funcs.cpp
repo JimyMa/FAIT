@@ -241,6 +241,41 @@ static c10::SymbolicShape inferShapeBcastOps(INFER_PARAMS) {
   return bcastShape(*lShape, *rShape);
 }
 
+static OperatorSet sumOp{
+    "aten::sum.dim_IntList(Tensor self, int[1]? dim, bool keepdim=False, *, "
+    "ScalarType? dtype=None) -> Tensor",
+};
+
+static c10::SymbolicShape inferShapeSumOp(INFER_PARAMS) {
+  auto selfShape = getShape(node->input(0)->type());
+  if (!selfShape) return {};
+  auto dims = getIntList(node->input(1));
+  auto keepdim = constant_as<bool>(node->input(2));
+  if (!dims || !keepdim) return {};
+  ShapeVec result;
+  for (auto i : c10::irange(selfShape->size())) {
+    auto dim = selfShape->at(i);
+    if (!std::count(dims->begin(), dims->end(), i))
+      result.push_back(dim);
+    else if (*keepdim)
+      result.push_back(1);
+  }
+  return result;
+}
+
+static OperatorSet mmOp{
+    "aten::mm(Tensor self, Tensor mat2) -> Tensor",
+};
+
+static c10::SymbolicShape inferShapeMmOp(INFER_PARAMS) {
+  auto lShape = getShape(node->input(0)->type()),
+       rShape = getShape(node->input(1)->type());
+  if (!lShape || !rShape) return {};
+  TORCH_CHECK(lShape->size() == 2);
+  TORCH_CHECK(rShape->size() == 2);
+  return ShapeVec{lShape->at(0), rShape->at(1)};
+}
+
 static OperatorSet matmulOp{
     "aten::matmul(Tensor self, Tensor other) -> Tensor",
 };
@@ -666,6 +701,47 @@ static c10::SymbolicShape inferShapeMaxPool2dOp(INFER_PARAMS) {
   return *selfShape;
 }
 
+inline static int64_t computeConvDimNoStride(int64_t in, int64_t w, int64_t pad,
+                                             int64_t dil) {
+  return in + 2 * pad - (w - 1) * dil - 1;
+}
+
+inline static int64_t computeConvDim(int64_t in, int64_t w, int64_t st,
+                                     int64_t pad, int64_t dil) {
+  return computeConvDimNoStride(in, w, pad, dil) / st + 1;
+}
+
+static OperatorSet conv2dOp{
+    "aten::conv2d(Tensor input, Tensor weight, Tensor? bias=None, int[2] "
+    "stride=1, int[2] padding=0, int[2] dilation=1, int groups=1) -> "
+    "Tensor",
+};
+
+static c10::SymbolicShape inferShapeConv2dOp(INFER_PARAMS) {
+  // Process inputs
+  auto selfShape = getShape(node->input(0)->type());
+  if (!selfShape) return {};
+  auto batch = selfShape->at(0), inChan = selfShape->at(1),
+       inH = selfShape->at(2), inW = selfShape->at(3);
+  auto weightShape = getShape(node->input(1)->type());
+  if (!weightShape) return getRankedShape(4);
+  auto outChan = weightShape->at(0), kH = weightShape->at(2),
+       kW = weightShape->at(3);
+  auto strides = getIntList(node->input(3)),
+       padding = getIntList(node->input(4)),
+       dilation = getIntList(node->input(5));
+  auto groups = constant_as<int64_t>(node->input(6));
+  if (!strides || !padding || !dilation || !groups) return getRankedShape(4);
+
+  // Compute spatial dimensions
+  auto outH = tryApply<int64_t>(computeConvDim, inH, kH, strides->at(0),
+                                padding->at(0), dilation->at(0));
+  auto outW = tryApply<int64_t>(computeConvDim, inW, kW, strides->at(1),
+                                padding->at(1), dilation->at(1));
+
+  return ShapeVec{batch, outChan, outH, outW};
+}
+
 static OperatorSet sameShapeOps{
     "aten::to.device(Tensor(a) self, Device device, ScalarType dtype, bool "
     "non_blocking=False, bool copy=False, MemoryFormat? memory_format=None) -> "
@@ -829,6 +905,8 @@ static std::initializer_list<
         {tensorOps, inferShapeTensorOps},
         {fillOps, inferShapeFillOps},
         {bcastOps, inferShapeBcastOps},
+        {sumOp, inferShapeSumOp},
+        {mmOp, inferShapeMmOp},
         {matmulOp, inferShapeMatmulOp},
         {selectOp, inferShapeSelectOp},
         {sliceOp, inferShapeSliceOp},
@@ -845,6 +923,7 @@ static std::initializer_list<
         {indexOp, inferShapeIndexOp},
         {nonzeroOp, inferShapeNonzeroOp},
         {maxPool2dOp, inferShapeMaxPool2dOp},
+        {conv2dOp, inferShapeConv2dOp},
         {sameShapeOps, passSameShape},
         {rankZeroOps, [](INFER_PARAMS) { return getRankedShape(0); }},
         {rankOneOps, [](INFER_PARAMS) { return getRankedShape(1); }},
