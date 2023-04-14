@@ -742,6 +742,20 @@ static c10::SymbolicShape inferShapeConv2dOp(INFER_PARAMS) {
   return ShapeVec{batch, outChan, outH, outW};
 }
 
+static OperatorSet upsample2dOps{
+    "aten::upsample_bilinear2d.vec(Tensor input, SymInt[]? output_size, bool "
+    "align_corners, float[]? scale_factors) -> Tensor",
+};
+
+static c10::SymbolicShape inferShapeUpsample2dOps(INFER_PARAMS) {
+  auto selfShape = getShape(node->input(0)->type());
+  if (!selfShape) return {};
+  auto outputSizes = getIntList(node->input(1));
+  if (!outputSizes) return {};
+  return ShapeVec{selfShape->at(0), selfShape->at(1), outputSizes->at(0),
+                  outputSizes->at(1)};
+}
+
 static OperatorSet sameShapeOps{
     "aten::to.device(Tensor(a) self, Device device, ScalarType dtype, bool "
     "non_blocking=False, bool copy=False, MemoryFormat? memory_format=None) -> "
@@ -924,6 +938,7 @@ static std::initializer_list<
         {nonzeroOp, inferShapeNonzeroOp},
         {maxPool2dOp, inferShapeMaxPool2dOp},
         {conv2dOp, inferShapeConv2dOp},
+        {upsample2dOps, inferShapeUpsample2dOps},
         {sameShapeOps, passSameShape},
         {rankZeroOps, [](INFER_PARAMS) { return getRankedShape(0); }},
         {rankOneOps, [](INFER_PARAMS) { return getRankedShape(1); }},

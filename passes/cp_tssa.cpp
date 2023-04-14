@@ -1,3 +1,4 @@
+#include <torch/csrc/jit/ir/ir_views.h>
 #include <torch/csrc/jit/runtime/operator.h>
 
 #include "common_passes.h"
@@ -67,6 +68,8 @@ static void listConstruct(Stack &stack, const c10::Type &list_type,
   stack.emplace_back(makeList(stack, list_type, num_inputs));
 }
 
+static void ifCond(Stack &stack, size_t num_inputs) {}
+
 static c10::optional<Stack> tryRunNodes(Node *node) {
   // Do not run on mutating nodes
   if (isMutating(node)) return c10::nullopt;
@@ -122,9 +125,44 @@ static c10::optional<Stack> tryRunNodes(Node *node) {
   return stack;
 }
 
+Node *foldIfCond(Node *ifNode, bool &changed) {
+  // Check if the condition can be folded
+  IfView view(ifNode);
+  auto constCond = constant_as<bool>(view.cond());
+  if (!constCond.has_value()) return nullptr;
+
+  // Move nodes in corresponding block out of node
+  auto block = constCond.value() ? view.thenBlock() : view.elseBlock();
+  auto graph = ifNode->owningGraph();
+  graph->setInsertPoint(ifNode->next());
+  std::unordered_map<Value *, Value *> valueMap;
+  for (auto node = block->nodes().front(); node != block->nodes().back();
+       node = node->next()) {
+    auto newNode = graph->createClone(
+        node, [&](Value *v) { return valueMap.count(v) ? valueMap[v] : v; });
+    graph->insertNode(newNode);
+    for (auto i = 0u; i < node->outputs().size(); i++)
+      valueMap.insert({node->output(i), newNode->output(i)});
+  }
+
+  // Replace outputs
+  auto blockOuts = block->outputs();
+  for (auto i : c10::irange(blockOuts.size())) {
+    auto output = blockOuts[i];
+    ifNode->output(i)->replaceAllUsesWith(
+        valueMap.count(output) ? valueMap[output] : output);
+  }
+
+  changed = true;
+  return remove(ifNode);
+}
+
 bool FoldConstantsTSSA(const std::shared_ptr<Graph> &graph) {
   bool changed = false;
   rewrite(graph->block(), [&](Node *node) -> Node * {
+    // Handle `if` node
+    if (node->kind() == prim::If) return foldIfCond(node, changed);
+
     // Check if its inputs and outputs are not mutated
     if (std::any_of(node->inputs().begin(), node->inputs().end(), isMutated))
       return nullptr;
@@ -142,7 +180,6 @@ bool FoldConstantsTSSA(const std::shared_ptr<Graph> &graph) {
       auto cnstVal = tryInsertConstant(*graph, ival);
       if (!cnstVal) continue;
       if (ival.isNone()) (*cnstVal)->setType(node->outputs()[i]->type());
-      // if (ival.isTensor() && ival.toTensor().numel() > 4) continue;
       node->outputs()[i]->replaceAllUsesWith(*cnstVal);
       changed = true;
     }

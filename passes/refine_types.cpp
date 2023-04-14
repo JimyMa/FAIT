@@ -447,6 +447,16 @@ static void inferShapeIn(Block *block, ValueTypeMap &refinedTypes) {
     // Handle special symbols
     auto kind = node->kind();
     switch (node->kind()) {
+      case aten::dim: {
+        auto tensorTy = node->input(0)->type()->cast<TensorType>();
+        auto dim = tensorTy->dim();
+        if (dim) {
+          auto constDim = graph->insertConstant(int64_t(*dim));
+          node->output(0)->replaceAllUsesWith(constDim);
+          node = remove(node);
+        }
+      } break;
+
       case aten::size: {
         auto tensorTy = node->input(0)->type()->cast<TensorType>();
         auto shape = tensorTy->sizes();
