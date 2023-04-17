@@ -222,6 +222,16 @@ static ShapeVec computeRepeatShape(SHAPE_FUNC_PARAMS) {
   return outShape;
 }
 
+static ShapeVec computeIndexShape(SHAPE_FUNC_PARAMS) {
+  auto self = GET_BUF_AT(0);
+  auto selfShape = self.dims();
+  auto index = GET_BUF_LIST_AT(1).front();
+  TORCH_CHECK(index.dtype().scalar_type() == c10::kLong);
+  auto result = index.dims();
+  result.insert(result.end(), selfShape.begin() + 1, selfShape.end());
+  return result;
+}
+
 static ShapeVec computeCatShape(SHAPE_FUNC_PARAMS) {
   auto tensors = GET_BUF_LIST_AT(0);
   auto shape = tensors.front().dims();
@@ -298,6 +308,8 @@ OperatorMap<NNCShapeFunction> shapeFuncs{
      computeAsShape},
     {"aten::repeat(Tensor self, SymInt[] repeats) -> Tensor",
      computeRepeatShape},
+    {"aten::index.Tensor(Tensor self, Tensor?[] indices) -> Tensor",
+     computeIndexShape},
     {"aten::cat(Tensor[] tensors, int dim=0) -> Tensor", computeCatShape},
     {"aten::stack(Tensor[] tensors, int dim=0) -> Tensor", computeStackShape},
 };

@@ -240,6 +240,25 @@ static Tensor computeRepeat(CUSTOM_LOWERING_PARAMS) {
   });
 }
 
+static Tensor computeIndex(CUSTOM_LOWERING_PARAMS) {
+  return Compute("index", outShape, [&](ParameterList& axes) {
+    // Process inputs
+    auto self = GET_BUF_AT(0);
+    auto indexBuf = GET_BUF_LIST_AT(1).front();
+    auto indexRank = indexBuf.dims().size();
+
+    // Load index
+    std::vector<VarHandle> indexAxes(axes.begin(), axes.begin() + indexRank);
+    auto index = indexBuf.load(indexAxes);
+
+    // Select `self` at dim 0 with loaded index
+    std::vector<ExprHandle> selfAxes(axes.begin() + indexRank, axes.end());
+    selfAxes.insert(selfAxes.begin(), index);
+
+    return self.load(selfAxes);
+  });
+}
+
 static Tensor computeCat(CUSTOM_LOWERING_PARAMS) {
   return Compute("cat", outShape, [&](ParameterList& axes) {
     // Process dimension
@@ -456,6 +475,8 @@ OperatorMap<CustomLoweringFunction> customLoweringFuncs{
      computeSlice},
     {"aten::unsqueeze(Tensor(a) self, int dim) -> Tensor(a)", computeUnsqueeze},
     {"aten::repeat(Tensor self, SymInt[] repeats) -> Tensor", computeRepeat},
+    {"aten::index.Tensor(Tensor self, Tensor?[] indices) -> Tensor",
+     computeIndex},
     {"aten::cat(Tensor[] tensors, int dim=0) -> Tensor", computeCat},
     {"aten::stack(Tensor[] tensors, int dim=0) -> Tensor", computeStack},
     {"tssa::SelectSet(Tensor self, Tensor src, int dim, int index) -> Tensor",

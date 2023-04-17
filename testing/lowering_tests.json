@@ -120,6 +120,12 @@
       [ [ { "shape": [ 2, 3, 2 ], "dtype": "Float" }, [ 1, 2 ] ], { } ]
     ]
   },
+  "index": {
+    "schema": "aten::index.Tensor(Tensor self, Tensor?[] indices) -> Tensor",
+    "cases": [
+      [ [ { "shape": [ 5, 4 ], "dtype": "Float" }, [ { "shape": [ 2, 3, 4 ], "dtype": "Long" } ] ], { } ]
+    ]
+  },
   "cat": {
     "schema": "aten::cat(Tensor[] tensors, int dim=0) -> Tensor",
     "cases": [

@@ -886,12 +886,13 @@ void GraphBuilder::runKernel(Stack& stack) const {
   }
 
   for (auto& codegen : codegens_) codegen->call(runArgs);
+  at::cuda::device_synchronize();
   LONG_TAIL_LOG_INFO("run kernel call end ...");
 
   drop(stack, nInputs_);
   for (auto& o : outputs) {
     if (is_parallel_map_) {
-      push_one(stack, std::move(at::List<at::Tensor>(o)));
+      push_one(stack, at::List<at::Tensor>(std::move(o)));
     } else {
       push_one(stack, std::move(o[0]));
     }

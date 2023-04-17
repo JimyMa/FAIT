@@ -127,8 +127,15 @@ static std::unordered_map<Symbol, bool (*)(Node *node)> fusabilityCheckers{
     {aten::index,
      [](Node *node) {
        auto indices = node->input(1)->node()->inputs();
-       return indices.front()->type()->cast<TensorType>()->scalarType() ==
-              c10::kLong;
+       if (indices.front()->type()->cast<TensorType>()->scalarType() !=
+           c10::kLong)  // static shape only when indices are `long`
+         return false;
+       auto output = node->output(0);
+       if (std::any_of(
+               output->uses().begin(), output->uses().end(),
+               [](const Use &use) { return use.user->kind() == tssa::Assign; }))
+         return false;  // do not fuse workaround for `aten::index_put_`
+       return true;
      }},
     {tssa::Assign,
      [](Node *node) { return node->input(0)->node()->kind() != aten::index; }},

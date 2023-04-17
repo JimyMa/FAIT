@@ -205,7 +205,7 @@ static Node* GetParallelledFunctorByFusedOp(
   functor_op->is_(c10::tssa::is_parallelled_args, is_parallelled_args);
 
   // placeholder for axis
-  subgraph->addInput();
+  subgraph->addInput()->setType(c10::NoneType::get());
   for (auto input_ : node->blocks()[0]->inputs()) {
     auto subgraph_input = subgraph->addInput();
     subgraph_input->copyMetadata(input_);

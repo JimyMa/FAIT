@@ -761,6 +761,9 @@ static c10::SymbolicShape inferShapeUpsample2dOps(INFER_PARAMS) {
 }
 
 static OperatorSet sameShapeOps{
+    "aten::zeros_like(Tensor self, *, ScalarType? dtype=None, Layout? "
+    "layout=None, Device? device=None, bool? pin_memory=None, MemoryFormat? "
+    "memory_format=None) -> Tensor",
     "aten::to.device(Tensor(a) self, Device device, ScalarType dtype, bool "
     "non_blocking=False, bool copy=False, MemoryFormat? memory_format=None) -> "
     "Tensor(a)",
@@ -818,6 +821,8 @@ static OperatorSet rankOneOps{
     "aten::arange.start_step(Scalar start, Scalar end, Scalar step=1, *, "
     "ScalarType? dtype=None, Layout? layout=None, Device? device=None, bool? "
     "pin_memory=None) -> Tensor",
+    "torchvision::nms(Tensor dets, Tensor scores, float iou_threshold) -> "
+    "Tensor",
 };
 
 static OperatorSet boolOps{
@@ -900,6 +905,15 @@ static void handleShapeTopk(INFER_PARAMS) {
   setShape(node->output(1), outShape);
 }
 
+static OperatorSet unique2Op{
+    "aten::_unique2(Tensor self, bool sorted=True, bool return_inverse=False, "
+    "bool return_counts=False) -> (Tensor, Tensor, Tensor)",
+};
+
+static void handleShapeUnique2Op(INFER_PARAMS) {
+  setShape(node->output(0), {-1});
+}
+
 static OperatorSet indicesOps{
     "aten::max.dim(Tensor self, int dim, bool keepdim=False) -> (Tensor "
     "values, Tensor indices)",
@@ -970,6 +984,7 @@ static std::initializer_list<std::pair<OperatorSet, void (*)(INFER_PARAMS)>>
         {minMaxOps, handleShapeMinMax},
         {sortOp, handleShapeSort},
         {topkOp, handleShapeTopk},
+        {unique2Op, handleShapeUnique2Op},
     };
 
 static std::initializer_list<std::pair<OperatorSet, void (*)(INFER_PARAMS)>>
