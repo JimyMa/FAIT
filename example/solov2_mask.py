@@ -216,6 +216,8 @@ class SOLOV2Mask(torch.nn.Module):
                 size=img_shape,
                 mode='bilinear',
                 align_corners=False).squeeze(0)
+        else:
+            mask_preds = torch.zeros(0, h, w, dtype=mask_preds.dtype)
         masks = mask_preds > 0.5
 
         return masks, labels, scores

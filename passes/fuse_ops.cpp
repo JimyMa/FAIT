@@ -80,6 +80,7 @@ OperatorSet fusableOps{
     "aten::cat(Tensor[] tensors, int dim=0) -> Tensor",
     "aten::stack(Tensor[] tensors, int dim=0) -> Tensor",
     "aten::repeat(Tensor self, SymInt[] repeats) -> Tensor",
+    "aten::index.Tensor(Tensor self, Tensor?[] indices) -> Tensor",
     "aten::size.int(Tensor self, int dim) -> int",
     "aten::__getitem__.t(t[](a) list, int idx) -> t(*)",
     "prim::TupleUnpack(Any tup) -> ...",
@@ -102,7 +103,7 @@ static std::unordered_set<Symbol> workingSymbols{
     // Reduction
     aten::max, aten::softmax,
     // Copy
-    aten::repeat, aten::cat, aten::stack,
+    aten::repeat, aten::cat, aten::stack, aten::index,
     // TensorSSA
     tssa::Assign};
 
@@ -122,6 +123,12 @@ static std::unordered_map<Symbol, bool (*)(Node *node)> fusabilityCheckers{
     {aten::stack,
      [](Node *node) {
        return node->input(0)->node()->kind() != prim::ParallelMap;
+     }},
+    {aten::index,
+     [](Node *node) {
+       auto indices = node->input(1)->node()->inputs();
+       return indices.front()->type()->cast<TensorType>()->scalarType() ==
+              c10::kLong;
      }},
     {tssa::Assign,
      [](Node *node) { return node->input(0)->node()->kind() != aten::index; }},

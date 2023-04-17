@@ -662,20 +662,24 @@ static c10::SymbolicShape inferShapeIndexOp(INFER_PARAMS) {
   TORCH_CHECK(indexDtype.has_value());
   switch (*indexDtype) {
     case c10::kBool: {
-      selfShape->erase(selfShape->begin(), selfShape->begin() + indexRank - 1);
-      selfShape->at(0) = c10::nullopt;
+      auto result = *selfShape;
+      result.erase(result.begin(), result.begin() + indexRank - 1);
+      result.at(0) = c10::nullopt;
+      return result;
     } break;
 
     case c10::kLong: {
-      TORCH_CHECK(indexRank == 1);
-      selfShape->at(0) = c10::nullopt;
+      auto result = *getShape(indexTy);
+      result.insert(result.end(), selfShape->begin() + 1, selfShape->end());
+      return result;
     } break;
 
     default: {
       TORCH_CHECK(false, "Indices data type ", *indexDtype, " not supported");
     }
   }
-  return *selfShape;
+
+  return {};
 }
 
 static OperatorSet nonzeroOp{
