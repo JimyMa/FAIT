@@ -58,7 +58,6 @@ static Node* GetParallelledFunctorByParallelMap(
     }
   }
 
-  functor_op->tys_(c10::tssa::input_refine_types, input_refine_types);
   functor_op->i_(c10::tssa::parallel_degree, input_degree);
   functor_op->i_(c10::tssa::is_parallel_map, true);
 
@@ -85,17 +84,18 @@ static Node* GetParallelledFunctorByParallelMap(
 
   std::vector<int64_t> is_parallelled_args;
 
-  for (int i = fusion_group->inputs().size() - 1; i > 0; i--) {
+  for (auto i : c10::irange(1, fusion_group->inputs().size())) {
     auto input_ = fusion_group->input(i);
     if (!parallelled_args.count(input_)) {
-      functor_op->insertInput(i, input_);
+      functor_op->addInput(input_);
+      input_refine_types.push_back(input_->type());
       is_parallelled_args.push_back(0);
     } else
       is_parallelled_args.push_back(1);
   }
 
-  std::reverse(is_parallelled_args.begin(), is_parallelled_args.end());
   functor_op->is_(c10::tssa::is_parallelled_args, is_parallelled_args);
+  functor_op->tys_(c10::tssa::input_refine_types, input_refine_types);
 
   for (int i = 0; i < fusion_group->blocks()[0]->inputs().size(); i++) {
     auto input_ = fusion_group->blocks()[0]->inputs()[i];

@@ -154,7 +154,7 @@ static Node *splitAt(Node *prevParMap, Node *splitNode, Graph *graph,
     for (auto output : node->outputs()) {
       for (auto &use : output->uses()) {
         auto user = use.user;
-        if (user->kind() == prim::Return)
+        if (user == prevBlock->return_node())
           prevStraightRets.insert(output);
         else if (user == splitNode || user->isAfter(splitNode)) {
           if (std::find(nextDepPrevs.begin(), nextDepPrevs.end(), output) ==

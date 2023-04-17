@@ -303,29 +303,22 @@ void GraphBuilder::compile() {
   nInputs_ -= 1;
 
   // Get Shape VarHandle
-  auto parallel_args_idx = 0;
-  auto graph_args_idx = 1;
-  for (auto is_paralleled_arg : is_parallelled_args_) {
-    auto graph_arg = graph_->inputs()[graph_args_idx];
-    graph_args_idx += 1;
-
-    if (is_paralleled_arg) {
-      auto type_arg = refined_types_[parallel_args_idx];
-      parallel_args_idx += 1;
-      if (auto tensor_type_arg = type_arg->cast<TensorType>()) {
-        auto symbolic_dims = tensor_type_arg->symbolic_sizes();
-        std::vector<ExprHandle> value_dims_expr;
-        for (int i = 0; i < symbolic_dims.rank(); i++) {
-          if (symbolic_dims[i].is_static()) {
-            value_dims_expr.push_back(LongImm::make(symbolic_dims[i].value()));
-          } else {
-            auto dim_expr = VarHandle(set_hash_name("dim"), kLong);
-            value_dims_expr.push_back(dim_expr);
-            FunctorShapeVarArgs.emplace_back(dim_expr);
-          }
+  for (auto i : c10::irange(1, graph_->inputs().size())) {
+    auto graph_arg = graph_->inputs()[i];
+    auto type_arg = refined_types_[i - 1];
+    if (auto tensor_type_arg = type_arg->cast<TensorType>()) {
+      auto symbolic_dims = tensor_type_arg->symbolic_sizes();
+      std::vector<ExprHandle> value_dims_expr;
+      for (int k = 0; k < symbolic_dims.rank(); k++) {
+        if (symbolic_dims[k].is_static()) {
+          value_dims_expr.push_back(LongImm::make(symbolic_dims[k].value()));
+        } else {
+          auto dim_expr = VarHandle(set_hash_name("dim"), kLong);
+          value_dims_expr.push_back(dim_expr);
+          FunctorShapeVarArgs.emplace_back(dim_expr);
         }
-        FunctorShapeMap_[graph_arg] = value_dims_expr;
       }
+      FunctorShapeMap_[graph_arg] = value_dims_expr;
     }
   }
 
