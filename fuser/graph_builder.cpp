@@ -620,13 +620,14 @@ void GraphBuilder::compile() {
         stmt, degree_, new_loop_axis.node(), LoadBufParallelFunctorMap,
         LoadVarParallelFunctorMap, StoreBufParallelFunctorMap,
         ShapeVarParallelFunctorMap);
-    stmt = eliminateCommonSubexpr(stmt);
+    LONG_TAIL_LOG_INFO("after parallization: ");
+    LONG_TAIL_LOG_INFO(to_string(stmt));
   }
 
-  // l.simplify();
-  {
-    LONG_TAIL_LOG_INFO("after parallization: ");
-    for (auto& stmt : rootStmts) LONG_TAIL_LOG_INFO(to_string(stmt));
+  LONG_TAIL_LOG_INFO("after cse: ");
+  for (auto& stmt : rootStmts) {
+    stmt = eliminateCommonSubexpr(stmt);
+    LONG_TAIL_LOG_INFO(to_string(stmt));
   }
 
   for (auto& stmt : rootStmts) {
@@ -707,7 +708,7 @@ void GraphBuilder::run(torch::jit::Stack& stack) const { runKernel(stack); }
 std::vector<CodeGen::CallArg> GraphBuilder::prepareRunArgs(
     const at::ArrayRef<IValue>& inputs,
     std::vector<std::vector<at::Tensor>>& outputs,
-    std::vector<std::vector<at::Tensor>>& interms) const {
+    std::vector<at::Tensor>& interms) const {
   LONG_TAIL_LOG_INFO("solve input begin");
   std::vector<CodeGen::CallArg> runArgs;
   // TODO: with is_paralllel_args
@@ -727,8 +728,12 @@ std::vector<CodeGen::CallArg> GraphBuilder::prepareRunArgs(
       auto functor_shape_expr = FunctorShapeMap_.at(input_value);
 
       for (int i = 0; i < degree_; i++) {
-        auto tensor_input = list_input[i].get().toTensor().contiguous();
-        runArgs.emplace_back(tensor_input.data_ptr());
+        auto tensor = list_input[i].get().toTensor();
+        if (!tensor.is_contiguous()) {
+          tensor = tensor.contiguous();
+          interms.push_back(tensor);
+        }
+        runArgs.emplace_back(tensor.data_ptr());
       }
 
       auto tensor_type = refined_types_[functor_idx]->cast<TensorType>();
@@ -808,7 +813,11 @@ std::vector<CodeGen::CallArg> GraphBuilder::prepareRunArgs(
         }
       }
     } else if (input.isTensor()) {
-      auto tensor_input = input.toTensor().contiguous();
+      auto tensor_input = input.toTensor();
+      if (!tensor_input.is_contiguous()) {
+        tensor_input = tensor_input.contiguous();
+        interms.push_back(tensor_input);
+      }
       auto functor_shape_expr = FunctorShapeMap_.at(input_value);
 
       std::vector<CodeGen::CallArg> shape_args_per_degree;
@@ -868,7 +877,7 @@ std::vector<CodeGen::CallArg> GraphBuilder::prepareRunArgs(
     if (i < nOutputs_)
       outputs.push_back(list_output);
     else
-      interms.push_back(list_output);
+      interms.insert(interms.end(), list_output.begin(), list_output.end());
   }
   LONG_TAIL_LOG_INFO("solve input done");
   return runArgs;
@@ -877,7 +886,8 @@ std::vector<CodeGen::CallArg> GraphBuilder::prepareRunArgs(
 void GraphBuilder::runKernel(Stack& stack) const {
   LONG_TAIL_LOG_INFO("run kernel begin: ");
   auto inputs = last(stack, nInputs_);
-  std::vector<std::vector<at::Tensor>> outputs, interms;
+  std::vector<std::vector<at::Tensor>> outputs;
+  std::vector<at::Tensor> interms;
   LONG_TAIL_LOG_INFO("Preparing call args ... ... ");
   auto runArgs = prepareRunArgs(inputs, outputs, interms);
   {
@@ -886,7 +896,7 @@ void GraphBuilder::runKernel(Stack& stack) const {
   }
 
   for (auto& codegen : codegens_) codegen->call(runArgs);
-  at::cuda::device_synchronize();
+  // at::cuda::device_synchronize();
   LONG_TAIL_LOG_INFO("run kernel call end ...");
 
   drop(stack, nInputs_);

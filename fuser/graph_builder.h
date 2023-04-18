@@ -74,7 +74,7 @@ class GraphBuilder {
   std::vector<CodeGen::CallArg> prepareRunArgs(
       const at::ArrayRef<IValue>& inputs,
       std::vector<std::vector<at::Tensor>>& outputs,
-      std::vector<std::vector<at::Tensor>>& interms) const;
+      std::vector<at::Tensor>& interms) const;
   void runKernel(Stack& stack) const;
   std::string set_hash_name(std::string base_name) {
     if (!name_hash_map_.count(base_name)) {

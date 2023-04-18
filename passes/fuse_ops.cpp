@@ -80,7 +80,7 @@ OperatorSet fusableOps{
     "aten::cat(Tensor[] tensors, int dim=0) -> Tensor",
     "aten::stack(Tensor[] tensors, int dim=0) -> Tensor",
     "aten::repeat(Tensor self, SymInt[] repeats) -> Tensor",
-    "aten::index.Tensor(Tensor self, Tensor?[] indices) -> Tensor",
+    // "aten::index.Tensor(Tensor self, Tensor?[] indices) -> Tensor",
     "aten::size.int(Tensor self, int dim) -> int",
     "aten::__getitem__.t(t[](a) list, int idx) -> t(*)",
     "prim::TupleUnpack(Any tup) -> ...",
