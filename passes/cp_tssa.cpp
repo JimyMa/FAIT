@@ -136,14 +136,7 @@ Node *foldIfCond(Node *ifNode, bool &changed) {
   auto graph = ifNode->owningGraph();
   graph->setInsertPoint(ifNode->next());
   std::unordered_map<Value *, Value *> valueMap;
-  for (auto node = block->nodes().front(); node != block->nodes().back();
-       node = node->next()) {
-    auto newNode = graph->createClone(
-        node, [&](Value *v) { return valueMap.count(v) ? valueMap[v] : v; });
-    graph->insertNode(newNode);
-    for (auto i = 0u; i < node->outputs().size(); i++)
-      valueMap.insert({node->output(i), newNode->output(i)});
-  }
+  cloneNodesTo(block->nodes().front(), block->nodes().back(), ifNode, valueMap);
 
   // Replace outputs
   auto blockOuts = block->outputs();

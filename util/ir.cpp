@@ -34,22 +34,28 @@ void rewrite(Block *block, const std::function<Node *(Node *)> &pattern) {
   }
 }
 
-void cloneNodesToBlock(Node *begin, Node *end, Block *block,
-                       std::unordered_map<Value *, Value *> &valueMap,
-                       std::unordered_map<Value *, TypePtr> *refinedTypes) {
+void cloneNodesTo(Node *begin, Node *end, Node *point,
+                  std::unordered_map<Value *, Value *> &valueMap,
+                  std::unordered_map<Value *, TypePtr> *refinedTypes) {
   TORCH_CHECK(begin->owningBlock() == end->owningBlock());
-  TORCH_CHECK(begin->isBefore(end));
-  auto graph = block->owningGraph();
+  TORCH_CHECK(begin->isBefore(end) || begin == end);
+  auto graph = point->owningGraph();
   for (auto iter = graph_node_list_iterator(begin, kNextDirection);
        iter != graph_node_list_iterator(end, kNextDirection); ++iter) {
     auto node = *iter;
     auto newNode = graph->createClone(
         node, [&](Value *v) { return valueMap.count(v) ? valueMap[v] : v; });
-    block->appendNode(newNode);
+    newNode->insertBefore(point);
     for (auto i = 0u; i < node->outputs().size(); i++)
-      valueMap.insert({node->output(i), newNode->output(i)});
+      valueMap[node->output(i)] = newNode->output(i);
     if (refinedTypes) transferRefinedTypesOf(node, newNode, *refinedTypes);
   }
+}
+
+void cloneNodesToBlock(Node *begin, Node *end, Block *block,
+                       std::unordered_map<Value *, Value *> &valueMap,
+                       std::unordered_map<Value *, TypePtr> *refinedTypes) {
+  cloneNodesTo(begin, end, block->return_node(), valueMap, refinedTypes);
 }
 
 void moveNodesToBlock(Node *begin, Node *end, Block *block,

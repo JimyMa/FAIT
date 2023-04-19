@@ -1,5 +1,6 @@
 #include "fuse_ops.h"
 
+#include <torch/csrc/jit/ir/ir_views.h>
 #include <torch/csrc/jit/tensorexpr/operators/operators.h>
 
 #include "fuser/nnc_func.h"
@@ -94,7 +95,7 @@ static std::unordered_set<Symbol> workingSymbols{
     // Tensor creation/conversion
     aten::tensor, aten::arange, aten::zeros, aten::to, aten::contiguous,
     // Elementwise
-    aten::exp, aten::sigmoid, aten::clamp, aten::tril, aten::triu,
+    aten::exp, aten::sigmoid, aten::clamp, aten::triu,
     // Binary
     aten::add, aten::sub, aten::mul, aten::div, aten::__and__, aten::minimum,
     aten::maximum,
@@ -105,7 +106,7 @@ static std::unordered_set<Symbol> workingSymbols{
     // Copy
     aten::repeat, aten::cat, aten::stack, aten::index,
     // TensorSSA
-    tssa::Assign};
+};
 
 static std::unordered_map<Symbol, bool (*)(Node *node)> fusabilityCheckers{
     {aten::__getitem__,
@@ -182,20 +183,12 @@ static bool isFusable(Node *node, bool isOut,
     return true;
 }
 
-static bool shouldFuseGroup(Node *head, Node *tail,
-                            const std::unordered_set<Node *> fusedNodes) {
+static bool shouldFuseGroup(Node *head, Node *tail) {
   // Check number of working nodes
   size_t numWorking = 0;
   for (auto node = head; node != tail; node = node->next())
     numWorking += workingSymbols.count(node->kind());
   if (numWorking <= 1) return false;
-
-  // Check if any constant is updated
-  for (auto node = head; node != tail; node = node->next()) {
-    if (node->kind() == tssa::Update &&
-        node->input(0)->node()->kind() == prim::Constant)
-      return false;
-  }
 
   return true;
 }
@@ -334,10 +327,21 @@ static void fuseOpsIn(Block *block, Graph *graph, ValueTypeMap &refinedTypes) {
     }
 
     // Check if current group can be fused
-    if (!shouldFuseGroup(head, tail, fusedNodes)) continue;
+    if (!shouldFuseGroup(head, tail)) continue;
 
     // Commit fusion
     head = commitFusion(head, tail, graph, refinedTypes);
+  }
+}
+
+static bool shouldFuseIn(Block *block) {
+  auto node = block->owningNode();
+  switch (node->kind()) {
+    case prim::FusionGroup:
+      return false;
+
+    default:
+      return true;
   }
 }
 
@@ -346,7 +350,8 @@ void FuseOps(const std::shared_ptr<Graph> &graph, ValueTypeMap &refinedTypes) {
   std::vector<Block *> blocks;
   blocks.push_back(graph->block());
   traversePreOrder(graph->block(), [&](Node *node) {
-    for (auto block : node->blocks()) blocks.push_back(block);
+    for (auto block : node->blocks())
+      if (shouldFuseIn(block)) blocks.push_back(block);
     return true;
   });
 
