@@ -526,58 +526,60 @@ void GraphBuilder::compile() {
   // Input Value Replacement
   std::unordered_map<const Value*, BufPtr> input_buf;
   for (int i = 1; i < graph_->inputs().size(); i++) {
-    auto input = graph_->inputs()[i];
-    if (input->type()->cast<TensorType>()) {
-      auto functor_buf = exprs_[input].AsNode<Buf>();
-      std::vector<BufHandle> par_bufs;
-      for (int i = 0; i < degree_; i++) {
-        std::vector<ExprHandle> par_dims;
-        for (auto value_dim_idx = 0;
-             value_dim_idx <
-             input->type()->cast<TensorType>()->symbolic_sizes().rank();
-             value_dim_idx++) {
-          auto value_dim = input->type()
-                               ->cast<TensorType>()
-                               ->symbolic_sizes()[value_dim_idx];
-          if (value_dim.is_static()) {
-            par_dims.push_back(LongImm::make(value_dim.value()));
-          } else {
-            auto functor_dim =
-                FunctorShapeMap_[input][value_dim_idx].AsNode<Var>();
-            par_dims.push_back(ShapeVarParallelFunctorMap[functor_dim][i]);
+    if (is_parallelled_args_[i - 1]) {
+      auto input = graph_->inputs()[i];
+      if (input->type()->cast<TensorType>()) {
+        auto functor_buf = exprs_[input].AsNode<Buf>();
+        std::vector<BufHandle> par_bufs;
+        for (int i = 0; i < degree_; i++) {
+          std::vector<ExprHandle> par_dims;
+          for (auto value_dim_idx = 0;
+               value_dim_idx <
+               input->type()->cast<TensorType>()->symbolic_sizes().rank();
+               value_dim_idx++) {
+            auto value_dim = input->type()
+                                 ->cast<TensorType>()
+                                 ->symbolic_sizes()[value_dim_idx];
+            if (value_dim.is_static()) {
+              par_dims.push_back(LongImm::make(value_dim.value()));
+            } else {
+              auto functor_dim =
+                  FunctorShapeMap_[input][value_dim_idx].AsNode<Var>();
+              par_dims.push_back(ShapeVarParallelFunctorMap[functor_dim][i]);
+            }
           }
-        }
 
-        auto par_buf = BufHandle(set_hash_name(functor_buf->name_hint()),
-                                 ExprVectorToExprHandleVector(
-                                     ExprHandleVectorToExprVector(par_dims)),
-                                 functor_buf->dtype());
-        par_bufs.push_back(par_buf);
-      }
-      LoadBufParallelFunctorMap[exprs_[input].AsNode<Buf>()] = par_bufs;
-    } else if (input->type()->cast<TupleType>() ||
-               input->type()->cast<ListType>()) {
-      auto functor_var_list =
-          getVarListByTupleNode(exprs_[input].AsNode<Tuple>());
-      for (auto functor_expr : functor_var_list) {
-        auto functor_var = functor_expr.node();
+          auto par_buf = BufHandle(set_hash_name(functor_buf->name_hint()),
+                                   ExprVectorToExprHandleVector(
+                                       ExprHandleVectorToExprVector(par_dims)),
+                                   functor_buf->dtype());
+          par_bufs.push_back(par_buf);
+        }
+        LoadBufParallelFunctorMap[exprs_[input].AsNode<Buf>()] = par_bufs;
+      } else if (input->type()->cast<TupleType>() ||
+                 input->type()->cast<ListType>()) {
+        auto functor_var_list =
+            getVarListByTupleNode(exprs_[input].AsNode<Tuple>());
+        for (auto functor_expr : functor_var_list) {
+          auto functor_var = functor_expr.node();
+          std::vector<VarHandle> par_vars;
+          for (int i = 0; i < degree_; i++) {
+            auto par_var = VarHandle(set_hash_name(functor_var->name_hint()),
+                                     functor_var->dtype());
+            par_vars.push_back(par_var);
+          }
+          LoadVarParallelFunctorMap[functor_var] = par_vars;
+        }
+      } else {
+        auto functor_var = exprs_[input].AsNode<Var>();
         std::vector<VarHandle> par_vars;
         for (int i = 0; i < degree_; i++) {
           auto par_var = VarHandle(set_hash_name(functor_var->name_hint()),
                                    functor_var->dtype());
           par_vars.push_back(par_var);
         }
-        LoadVarParallelFunctorMap[functor_var] = par_vars;
+        LoadVarParallelFunctorMap[exprs_[input].AsNode<Var>()] = par_vars;
       }
-    } else {
-      auto functor_var = exprs_[input].AsNode<Var>();
-      std::vector<VarHandle> par_vars;
-      for (int i = 0; i < degree_; i++) {
-        auto par_var = VarHandle(set_hash_name(functor_var->name_hint()),
-                                 functor_var->dtype());
-        par_vars.push_back(par_var);
-      }
-      LoadVarParallelFunctorMap[exprs_[input].AsNode<Var>()] = par_vars;
     }
   }
   for (auto i : c10::irange(FunctorOutputBufArgs.size())) {
@@ -643,26 +645,42 @@ void GraphBuilder::compile() {
 
   // input
   // buf
-  for (auto input : FunctorInputArgs) {
-    if (auto buf_input = c10::get_if<BufHandle>(&input)) {
-      auto par_inputs = LoadBufParallelFunctorMap[buf_input->AsNode<Buf>()];
-      for (auto par_input : par_inputs) {
-        ParallelBufferArgs_.push_back(par_input);
-      }
-    } else if (auto var_input = c10::get_if<VarHandle>(&input)) {
-      auto par_inputs = LoadVarParallelFunctorMap[var_input->AsNode<Var>()];
-      for (auto par_input : par_inputs) {
-        ParallelBufferArgs_.push_back(par_input);
-      }
-    } else if (auto var_list_input = c10::get_if<VarList>(&input)) {
-      for (auto var_input : *var_list_input) {
-        auto par_inputs = LoadVarParallelFunctorMap[var_input.AsNode<Var>()];
+  for (auto i : c10::irange(FunctorInputArgs.size())) {
+    auto input = FunctorInputArgs[i];
+    bool is_parallel_args = is_parallelled_args_[i];
+    if (is_parallel_args) {
+      if (auto buf_input = c10::get_if<BufHandle>(&input)) {
+        auto par_inputs = LoadBufParallelFunctorMap[buf_input->AsNode<Buf>()];
         for (auto par_input : par_inputs) {
           ParallelBufferArgs_.push_back(par_input);
         }
+      } else if (auto var_input = c10::get_if<VarHandle>(&input)) {
+        auto par_inputs = LoadVarParallelFunctorMap[var_input->AsNode<Var>()];
+        for (auto par_input : par_inputs) {
+          ParallelBufferArgs_.push_back(par_input);
+        }
+      } else if (auto var_list_input = c10::get_if<VarList>(&input)) {
+        for (auto var_input : *var_list_input) {
+          auto par_inputs = LoadVarParallelFunctorMap[var_input.AsNode<Var>()];
+          for (auto par_input : par_inputs) {
+            ParallelBufferArgs_.push_back(par_input);
+          }
+        }
+      } else {
+        throw unsupported_dtype();
       }
     } else {
-      throw unsupported_dtype();
+      if (auto buf_input = c10::get_if<BufHandle>(&input)) {
+        ParallelBufferArgs_.push_back(*buf_input);
+      } else if (auto var_input = c10::get_if<VarHandle>(&input)) {
+        ParallelBufferArgs_.push_back(*var_input);
+      } else if (auto var_list_input = c10::get_if<VarList>(&input)) {
+        for (auto var_input : *var_list_input) {
+          ParallelBufferArgs_.push_back(var_input);
+        }
+      } else {
+        throw unsupported_dtype();
+      }
     }
   }
 
@@ -896,7 +914,6 @@ void GraphBuilder::runKernel(Stack& stack) const {
   }
 
   for (auto& codegen : codegens_) codegen->call(runArgs);
-  // at::cuda::device_synchronize();
   LONG_TAIL_LOG_INFO("run kernel call end ...");
 
   drop(stack, nInputs_);

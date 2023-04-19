@@ -212,12 +212,14 @@ static void findGroupInOutValues(Node *head, Node *tail,
   for (auto node = head; node != tail; node = node->next()) {
     // Find inputs
     for (auto input : node->inputs()) {
-      // Constants are not considered inputs
       auto defNode = input->node();
-      if (defNode->kind() == prim::Constant) continue;
-
-      // Skip if this input is defined by a node in the group
-      if (groupNodeSet.count(defNode)) continue;
+      if (defNode->kind() == prim::Constant) {
+        // Constants are not considered inputs
+        if (input->type()->kind() != TypeKind::TensorType) continue;
+      } else {
+        // Skip if this input is defined by a node in the group
+        if (groupNodeSet.count(defNode)) continue;
+      }
 
       // Skip if added before
       if (std::find(inputs.begin(), inputs.end(), input) != inputs.end())
