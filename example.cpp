@@ -123,12 +123,12 @@ static void checkOutputs(const Stack &actualOutputs, const Stack &refOutputs) {
   }
 }
 
-static constexpr auto kWarmupRuns = 3;
+static constexpr auto kWarmupRuns = 16;
 static constexpr auto kRunDuration = 2s;
 
 static auto evaluate(const std::function<void(size_t)> &task) {
   // Warm up
-  for (auto _ : c10::irange(kWarmupRuns)) task(0);
+  for (auto i : c10::irange(kWarmupRuns)) task(i);
   cuda::device_synchronize();
 
   // Run for the expected period
