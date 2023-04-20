@@ -5,6 +5,8 @@ project(long-tail)
 
 find_package(Torch REQUIRED)
 find_package(TorchVision REQUIRED)
+find_package(torchtrt REQUIRED)
+
 set(CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS})
 
 set(JSON_BuildTests OFF CACHE INTERNAL "")
@@ -20,10 +22,13 @@ file(GLOB SOURCES
         ${PROJECT_SOURCE_DIR}/util/*.cpp)
 
 add_library(long-tail ${SOURCES})
-target_link_libraries(long-tail ${TORCH_LIBRARIES} TorchVision::TorchVision nlohmann_json::nlohmann_json)
+target_link_libraries(long-tail ${TORCH_LIBRARIES} TorchVision::TorchVision torchtrt nlohmann_json::nlohmann_json)
 
 add_executable(example ${PROJECT_SOURCE_DIR}/example.cpp)
 target_link_libraries(example long-tail)
 
 add_executable(test_lowering ${PROJECT_SOURCE_DIR}/testing/test_lowering.cpp)
 target_link_libraries(test_lowering long-tail)
+
+add_executable(run_torchtrt ${PROJECT_SOURCE_DIR}/run_torchtrt.cpp)
+target_link_libraries(run_torchtrt long-tail)

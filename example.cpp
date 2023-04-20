@@ -15,9 +15,6 @@
 #include <torch/serialize.h>
 #include <torchvision/vision.h>
 
-#include <chrono>
-#include <iomanip>
-
 #include "passes/canonicalize.h"
 #include "passes/common_passes.h"
 #include "passes/freeze_module.h"
@@ -28,12 +25,11 @@
 #include "passes/tensor_ssa.h"
 #include "passes/type_utils.h"
 #include "passes/validate_graph.h"
+#include "run_utils.h"
 #include "util/logging.h"
 #include "util/rand.h"
 
 using namespace torch::jit;
-using namespace std::chrono;
-using namespace std::chrono_literals;
 
 static void dumpGraphToFile(const std::shared_ptr<Graph> &graph,
                             const std::string &path) {
@@ -82,10 +78,11 @@ static void checkValue(const IValue &actual, const IValue &ref,
   TORCH_CHECK(actual.tagKind() == ref.tagKind(), "Expect ", ref.tagKind(),
               ", got ", actual.tagKind(), " at ", fmtIndices(indices));
   if (actual.isTensor()) {
-    TORCH_CHECK(at::allclose(actual.toTensor(), ref.toTensor(), 1e-3, 1e-5),
-                "Inconsistent tensor value at ", fmtIndices(indices),
-                "\nReference: \n", ref.toTensor(), "\nActual: \n",
-                actual.toTensor());
+    auto actualTensor = actual.toTensor(), refTensor = ref.toTensor();
+    TORCH_CHECK(actualTensor.sizes() == refTensor.sizes() &&
+                    at::allclose(actualTensor, refTensor, 1e-3, 1e-5),
+                "Inconsistent tensor at ", fmtIndices(indices),
+                "\nReference: \n", refTensor, "\nActual: \n", actualTensor);
   } else if (actual.isList()) {
     auto realList = actual.toListRef(), refList = ref.toListRef();
     TORCH_CHECK(realList.size() == refList.size(), "Expect list of length ",
@@ -121,39 +118,6 @@ static void checkOutputs(const Stack &actualOutputs, const Stack &refOutputs) {
     checkValue(actualVal, refVal, indices);
     indices.pop_back();
   }
-}
-
-static constexpr auto kWarmupRuns = 16;
-static constexpr auto kRunDuration = 2s;
-
-static auto evaluate(const std::function<void(size_t)> &task) {
-  // Warm up
-  for (auto i : c10::irange(kWarmupRuns)) task(i);
-  cuda::device_synchronize();
-
-  // Run for the expected period
-  size_t count = 0;
-  auto begin = system_clock::now();
-  while (system_clock::now() - begin < kRunDuration) {
-    task(count++);
-    cuda::device_synchronize();
-  }
-
-  return (system_clock::now() - begin) / count;
-}
-
-static std::array<std::string, 4> units{"ns", "us", "ms", "s"};
-
-static std::string fmtDuration(std::chrono::duration<size_t, std::nano> dur) {
-  double fp = dur.count();
-  auto unitIdx = 0;
-  while (unitIdx < units.size() - 1 && fp > 1e3) {
-    fp /= 1e3;
-    unitIdx++;
-  }
-  std::stringstream ss;
-  print(ss, std::setprecision(4), fp, units[unitIdx]);
-  return ss.str();
 }
 
 static void dumpStruct(const IValue &val, size_t indent = 0) {
@@ -198,10 +162,7 @@ int main(int argc, const char *argv[]) {
   Module mod;
   try {
     mod = load(argv[1]);
-  } catch (c10::Error &e) {
-    std::cerr << e.what();
-    return 1;
-  } catch (ErrorReport &e) {
+  } catch (std::exception &e) {
     std::cerr << e.what();
     return 1;
   }
@@ -253,23 +214,24 @@ int main(int argc, const char *argv[]) {
     numSamples = 1;
   }
 
-  Stack stack;
-
   Code code(graph, "");
-  stack = getSample(dataset, 0);
-  LONG_TAIL_LOG_INFO("RUN LONG TAIL BEGIN");
-  torch::jit::InterpreterState(code).run(stack);
-  LONG_TAIL_LOG_INFO("RUN LONG TAIL DONE");
-  auto output_tss_parallel = stack;
-
   GraphFunction origin_function("original", origin_graph, nullptr);
-  stack = getSample(dataset, 0);
-  LONG_TAIL_LOG_INFO("RUN TS BEGIN");
-  origin_function.run(stack);
-  LONG_TAIL_LOG_INFO("RUN TS DONE");
-  auto output_origin = stack;
 
-  checkOutputs(output_tss_parallel, output_origin);
+  Stack stack;
+  for (auto i : c10::irange(numSamples)) {
+    stack = getSample(dataset, i);
+    torch::jit::InterpreterState(code).run(stack);
+    auto output_tss_parallel = stack;
+    stack = getSample(dataset, i);
+    origin_function.run(stack);
+    auto output_origin = stack;
+    try {
+      checkOutputs(output_tss_parallel, output_origin);
+    } catch (std::exception &err) {
+      std::cerr << "Inconsistency at sample " << i << '\n';
+      // std::cerr << err.what();
+    }
+  }
 
   {
     auto dur = evaluate([&](size_t i) {
