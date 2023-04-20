@@ -24,6 +24,7 @@
 #include "passes/te_op.h"
 #include "passes/tensor_ssa.h"
 #include "passes/type_utils.h"
+#include "passes/unroll_loops.h"
 #include "passes/validate_graph.h"
 #include "run_utils.h"
 #include "util/logging.h"
@@ -168,6 +169,7 @@ int main(int argc, const char *argv[]) {
   }
   Freeze(&mod);
   auto graph = mod.get_method("forward").graph();
+  dumpGraphToFile(graph, "after_freeze.rb");
   auto origin_graph = graph->copy();
   auto inputTypes = parseInputTypes(argv[2]);
   ValueTypeMap refinedTypes;
@@ -182,6 +184,10 @@ int main(int argc, const char *argv[]) {
     dumpGraphToFile(graph, "after_par.rb");
     FuseOps(graph, refinedTypes);
     dumpGraphToFile(graph, "after_fuse.rb");
+    UnrollLoopsWithDeps(graph, refinedTypes);
+    InferShape(graph, refinedTypes);
+    FuseOps(graph, refinedTypes);
+    dumpGraphToFile(graph, "after_unroll.rb");
     SplitParallelMaps(graph, refinedTypes);
     dumpGraphToFile(graph, "after_split.rb");
     ToMutableTensors(graph);
