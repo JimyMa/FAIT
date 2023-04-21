@@ -30,5 +30,8 @@ target_link_libraries(example long-tail)
 add_executable(test_lowering ${PROJECT_SOURCE_DIR}/testing/test_lowering.cpp)
 target_link_libraries(test_lowering long-tail)
 
-add_executable(run_torchtrt ${PROJECT_SOURCE_DIR}/run_torchtrt.cpp)
-target_link_libraries(run_torchtrt long-tail)
+add_executable(run_trt ${PROJECT_SOURCE_DIR}/run_trt.cpp)
+target_link_libraries(run_trt long-tail)
+
+add_executable(run_net_trt ${PROJECT_SOURCE_DIR}/run_net_trt.cpp)
+target_link_libraries(run_net_trt long-tail)

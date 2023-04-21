@@ -1,11 +1,7 @@
-#include <c10/cuda/CUDAFunctions.h>
 #include <torch/csrc/jit/serialization/import.h>
 #include <torch/serialize.h>
 #include <torch_tensorrt/torch_tensorrt.h>
 #include <torchvision/vision.h>
-
-#include <chrono>
-#include <iomanip>
 
 #include "passes/refine_types.h"
 #include "run_utils.h"
@@ -102,7 +98,7 @@ static Stack getFlattenedSample(const c10::List<IValue> &dataset,
 
 int main(int argc, char const *argv[]) {
   if (argc < 4) {
-    std::cerr << "usage: example <script-module> <input-types> <input-data>\n";
+    std::cerr << "usage: run_trt <script-module> <input-types> <input-data>\n";
     return 1;
   }
   Module mod;
@@ -115,14 +111,7 @@ int main(int argc, char const *argv[]) {
   auto inputTypes = parseInputTypes(argv[2]);
   flattenForwardInputs(mod, inputTypes);
   auto spec = getFlattenedSpec(inputTypes);
-  c10::impl::GenericList dataset(c10::AnyType::get());
-  {
-    std::ifstream ifs(argv[3], std::ios::binary);
-    TORCH_CHECK(ifs);
-    std::vector<char> buf((std::istreambuf_iterator<char>(ifs)),
-                          std::istreambuf_iterator<char>());
-    dataset = torch::pickle_load(buf).toList();
-  }
+  auto dataset = loadPickle<c10::impl::GenericList>(argv[3]);
   auto numSamples = dataset.size();
   auto stack = getFlattenedSample(dataset, 0);
   spec.torch_executed_ops = {"prim::ListConstruct"};

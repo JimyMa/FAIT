@@ -1,6 +1,7 @@
 #pragma once
 
 #include <c10/cuda/CUDAFunctions.h>
+#include <c10/util/irange.h>
 
 #include <chrono>
 #include <iomanip>
@@ -13,20 +14,29 @@ namespace jit {
 using namespace std::chrono;
 using namespace std::chrono_literals;
 
+template <class T>
+inline T loadPickle(const std::string &path) {
+  std::ifstream ifs(path, std::ios::binary);
+  TORCH_CHECK(ifs, "Cannot open file ", path);
+  std::vector<char> buf((std::istreambuf_iterator<char>(ifs)),
+                        std::istreambuf_iterator<char>());
+  return torch::pickle_load(buf).to<T>();
+}
+
 static constexpr auto kWarmupRuns = 16;
 static constexpr auto kRunDuration = 2s;
 
 inline auto evaluate(const std::function<void(size_t)> &task) {
   // Warm up
   for (auto i : c10::irange(kWarmupRuns)) task(i);
-  cuda::device_synchronize();
+  at::cuda::device_synchronize();
 
   // Run for the expected period
   size_t count = 0;
   auto begin = system_clock::now();
   while (system_clock::now() - begin < kRunDuration) {
     task(count++);
-    cuda::device_synchronize();
+    at::cuda::device_synchronize();
   }
 
   return (system_clock::now() - begin) / count;

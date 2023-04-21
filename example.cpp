@@ -208,11 +208,7 @@ int main(int argc, const char *argv[]) {
   c10::impl::GenericList dataset(AnyType::get());
   size_t numSamples = 0;
   if (argc > 3) {
-    std::ifstream ifs(argv[3], std::ios::binary);
-    TORCH_CHECK(ifs);
-    std::vector<char> buf((std::istreambuf_iterator<char>(ifs)),
-                          std::istreambuf_iterator<char>());
-    dataset = torch::pickle_load(buf).toList();
+    dataset = loadPickle<c10::impl::GenericList>(argv[3]);
     numSamples = dataset.size();
   } else {
     dataset.emplace_back(

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <c10/util/Backtrace.h>
 #include <c10/util/Optional.h>
 
 #include <sstream>
