@@ -25,6 +25,12 @@ bool traversePostOrder(Block *block,
   return true;
 }
 
+bool containsAnySymbol(Block *block,
+                       const std::unordered_set<Symbol> &symbols) {
+  return !traversePreOrder(
+      block, [&](Node *node) { return !symbols.count(node->kind()); });
+}
+
 void rewrite(Block *block, const std::function<Node *(Node *)> &pattern) {
   for (auto node = block->nodes().front(); node != block->nodes().back();
        node = node->next()) {

@@ -1,5 +1,6 @@
 #include "common_passes.h"
 #include "parallelize_loops.h"
+#include "type_utils.h"
 #include "util/ir.h"
 #include "util/traits.h"
 
@@ -7,14 +8,20 @@ namespace torch {
 namespace jit {
 
 static bool producesLoopInvariants(Node *node, Block *body) {
+  // All constants are loop variants
+  if (node->kind() == prim::Constant) return true;
+
   // Skip nodes with blocks
   if (!node->blocks().empty()) return false;
 
   // Skip mutating nodes
   if (isMutating(node)) return false;
 
-  // Skip if its outputs are mutated
+  // Skip tensors
   auto outputs = node->outputs();
+  if (std::any_of(outputs.begin(), outputs.end(), isTensor)) return false;
+
+  // Skip if its outputs are mutated
   if (std::any_of(outputs.begin(), outputs.end(), isMutated)) return false;
 
   // Check if all of its inputs are defined outside of loop body

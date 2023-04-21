@@ -22,6 +22,12 @@ bool traversePreOrder(Block *block, const std::function<bool(Node *)> &visitor);
 bool traversePostOrder(Block *block,
                        const std::function<bool(Node *)> &visitor);
 
+/// @brief Check if a block contains (recursively) any symbol in the symbol set.
+/// @param block The block to be checked.
+/// @param symbols The symbol set.
+/// @return Check result.
+bool containsAnySymbol(Block *block, const std::unordered_set<Symbol> &symbols);
+
 /// @brief Remove the node, and return the one right before it.
 /// @param node The node to be removed.
 /// @return The node right before the removed one.

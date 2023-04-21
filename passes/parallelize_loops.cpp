@@ -2,6 +2,7 @@
 
 #include "common_passes.h"
 #include "type_utils.h"
+#include "unroll_loops.h"
 #include "util/ir.h"
 #include "util/traits.h"
 
@@ -141,6 +142,11 @@ void ParallelizeLoops(const std::shared_ptr<Graph> &graph) {
 
   // Convert to parallel maps
   for (auto loop : loops) convertLoopToMap(loop, graph.get());
+}
+
+static c10::optional<size_t> getParMapTripCount(Node *parMap) {
+  auto len = constant_as<int64_t>(parMap->input(0));
+  return mapOpt<size_t>(len, [](int64_t len) { return size_t(len); });
 }
 
 static Node *splitAt(Node *prevParMap, Node *splitNode, Graph *graph,
@@ -287,7 +293,7 @@ void SplitParallelMaps(const std::shared_ptr<Graph> &graph,
   removeDeadRefinedTypes(refinedTypes, graph.get());
 }
 
-static void convertInfusibleMap(Node *parMap, ValueTypeMap &refinedTypes) {
+static void convertMapToLoop(Node *parMap, ValueTypeMap &refinedTypes) {
   // Create loop node
   auto graph = parMap->owningGraph();
   graph->setInsertPoint(parMap->next());
@@ -350,10 +356,92 @@ void ConvertInfusibleMapsToLoops(const std::shared_ptr<Graph> &graph,
   });
 
   // Convert each infusible parallel map
-  for (auto parMap : infusibleMaps) convertInfusibleMap(parMap, refinedTypes);
+  for (auto parMap : infusibleMaps) convertMapToLoop(parMap, refinedTypes);
 
   // Followup passes
   EliminateCommonSubexprTSSA(graph);
+}
+
+static std::unordered_set<Symbol> forbidUnrollSymbols{
+    prim::Loop, prim::If, prim::FusionGroup, prim::ParallelMap};
+
+static size_t countNodesIn(Block *block) {
+  size_t numNodes = 0;
+  for (auto node = block->nodes().front(); node != block->nodes().back();
+       node = node->next())
+    numNodes++;
+  return numNodes;
+}
+
+static bool isSimpleMap(Node *parMap) {
+  auto body = parMap->blocks().front();
+  if (parMap->input(0)->node()->kind() != prim::Constant) return false;
+  if (containsAnySymbol(body, forbidUnrollSymbols)) return false;
+  return true;
+}
+
+static void unrollMap(Node *parMap, ValueTypeMap &refinedTypes) {
+  // Prepare for unrolling
+  auto graph = parMap->owningGraph();
+  graph->setInsertPoint(parMap);
+  auto numTasks = *constant_as<int64_t>(parMap->input(0));
+  auto body = parMap->blocks().front();
+
+  // Inline body
+  std::vector<std::vector<Value *>> allOutputs(
+      parMap->outputs().size());  // [output, taskIdx]
+  for (auto taskIdx : c10::irange(numTasks)) {
+    // Replace parameters with concrete values
+    std::unordered_map<Value *, Value *> valueMap;
+    auto idxParam = body->inputs()[0];
+    auto idxVal = graph->insertConstant(taskIdx);
+    valueMap.insert({idxParam, idxVal});
+    for (auto argIdx : c10::irange(1, parMap->inputs().size())) {
+      auto listArg = parMap->inputs()[argIdx], param = body->inputs()[argIdx];
+      auto elem = graph->insert(aten::__getitem__, {listArg, idxVal})
+                      ->setType(param->type());
+      valueMap.insert({param, elem});
+    }
+
+    // Clone body
+    cloneNodesTo(body->nodes().front(), body->nodes().back(), parMap, valueMap,
+                 &refinedTypes);
+
+    // Collect body returns
+    for (auto outIdx : c10::irange(body->outputs().size())) {
+      auto ret = body->outputs()[outIdx], output = valueMap.at(ret);
+      allOutputs[outIdx].push_back(output);
+    }
+  }
+
+  // Create output list
+  for (auto outIdx : c10::irange(parMap->outputs().size())) {
+    auto outList = parMap->output(outIdx);
+    auto elemTy = outList->type()->cast<ListType>()->getElementType();
+    auto newOutList = graph->createList(elemTy, allOutputs[outIdx])
+                          ->insertBefore(parMap)
+                          ->output(0);
+    outList->replaceAllUsesWith(newOutList);
+    transferRefinedType(outList, newOutList, refinedTypes);
+  }
+
+  // Remove parallel map
+  parMap->destroy();
+  removeDeadRefinedTypes(refinedTypes, graph);
+}
+
+void UnrollSimpleMaps(const std::shared_ptr<Graph> &graph,
+                      ValueTypeMap &refinedTypes) {
+  // Collect simple maps
+  std::vector<Node *> simpleMaps;
+  traversePostOrder(graph->block(), [&](Node *node) {
+    if (node->kind() == prim::ParallelMap && isSimpleMap(node))
+      simpleMaps.push_back(node);
+    return true;
+  });
+
+  // Unroll simple maps
+  for (auto parMap : simpleMaps) unrollMap(parMap, refinedTypes);
 }
 
 void CanonicalizeFusableMaps(const std::shared_ptr<Graph> &graph) {

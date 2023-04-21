@@ -93,7 +93,7 @@ static std::unordered_set<Symbol> fusableNoOpSymbols{
 
 static std::unordered_set<Symbol> workingSymbols{
     // Tensor creation/conversion
-    aten::tensor, aten::arange, aten::zeros, aten::to, aten::contiguous,
+    aten::arange, aten::zeros, aten::to, aten::contiguous,
     // Elementwise
     aten::exp, aten::sigmoid, aten::clamp, aten::triu,
     // Binary

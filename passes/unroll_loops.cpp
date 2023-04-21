@@ -2,12 +2,13 @@
 
 #include <torch/csrc/jit/ir/ir_views.h>
 
+#include "parallelize_loops.h"
 #include "util/ir.h"
 
 namespace torch {
 namespace jit {
 
-static void unroll(Node *loop, ValueTypeMap &refinedTypes) {
+static void unrollLoop(Node *loop, ValueTypeMap &refinedTypes) {
   // Prepare for unrolling
   LoopView view(loop);
   auto tripCount = *constant_as<int64_t>(view.maxTripCount());
@@ -49,12 +50,17 @@ static void unroll(Node *loop, ValueTypeMap &refinedTypes) {
     loopOut->replaceAllUsesWith(unrollOut);
   }
   loop->destroy();
+  removeDeadRefinedTypes(refinedTypes, graph);
 }
+
+static std::unordered_set<Symbol> forbidUnrollSymbols{
+    prim::Loop, prim::If, prim::FusionGroup, prim::ParallelMap};
 
 static bool shouldUnroll(Node *loop) {
   LoopView view(loop);
   if (view.carriedInputs().empty()) return false;
   if (view.maxTripCount()->node()->kind() != prim::Constant) return false;
+  if (containsAnySymbol(view.bodyBlock(), forbidUnrollSymbols)) return false;
   return true;
 }
 
@@ -67,7 +73,7 @@ void UnrollLoopsWithDeps(const std::shared_ptr<Graph> &graph,
     return true;
   });
 
-  for (auto loop : loops) unroll(loop, refinedTypes);
+  for (auto loop : loops) unrollLoop(loop, refinedTypes);
 }
 
 }  // namespace jit
