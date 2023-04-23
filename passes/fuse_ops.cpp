@@ -345,6 +345,70 @@ static bool shouldFuseIn(Block *block) {
   }
 }
 
+static void fixTensorListInputs(Node *group, ValueTypeMap &refinedTypes) {
+  // Prepare for fix
+  auto graph = group->owningGraph();
+  auto body = group->blocks().front();
+  graph->setInsertPoint(group);
+
+  std::unordered_map<Value *, std::vector<Value *>> listElems;
+  for (auto i : c10::irange(group->inputs().size())) {
+    // Create unpack node for tensor list inputs
+    auto input = group->input(i);
+    if (input->type()->kind() != TypeKind::ListType) continue;
+    if (getUnifiedElementType(input->type())->kind() != TypeKind::TensorType)
+      continue;
+    auto refined = getRefinedType(input, refinedTypes);
+    TORCH_CHECK(refined->kind() == TypeKind::TupleType,
+                "Cannot get refined tuple type for list ", input);
+    auto elemTypes = refined->cast<TupleType>()->elements();
+    auto unpackNode =
+        graph->createListUnpack(input, elemTypes.size())->insertBefore(group);
+    for (auto j : c10::irange(elemTypes.size()))
+      unpackNode->output(j)->setType(elemTypes[j]);
+
+    // Add node and block inputs
+    auto listParam = body->inputs()[i];
+    std::vector<Value *> elemParams;
+    for (auto j : c10::irange(elemTypes.size())) {
+      group->addInput(unpackNode->output(j));
+      elemParams.push_back(body->addInput()->setType(elemTypes[j]));
+    }
+    listElems.insert({listParam, std::move(elemParams)});
+  }
+
+  // Remap access to list values
+  rewrite(body, [&](Node *node) -> Node * {
+    if (!listElems.count(node->input(0))) return nullptr;
+    auto &elems = listElems[node->input(0)];
+    switch (node->kind()) {
+      case prim::ListUnpack: {
+        for (auto j : c10::irange(node->outputs().size()))
+          node->output(j)->replaceAllUsesWith(elems[j]);
+        return remove(node);
+      } break;
+
+      case aten::__getitem__: {
+        auto index = *constant_as<int64_t>(node->input(1));
+        node->output(0)->replaceAllUsesWith(elems.at(index));
+        return remove(node);
+      } break;
+
+      default:
+        return nullptr;
+    };
+  });
+
+  // Remove list inputs and parameters
+  for (size_t i = 0; i < group->inputs().size(); i++) {
+    if (listElems.count(body->inputs()[i])) {
+      group->removeInput(i);
+      body->eraseInput(i);
+      i--;
+    }
+  }
+}
+
 void FuseOps(const std::shared_ptr<Graph> &graph, ValueTypeMap &refinedTypes) {
   // Collect all blocks
   std::vector<Block *> blocks;
@@ -357,25 +421,12 @@ void FuseOps(const std::shared_ptr<Graph> &graph, ValueTypeMap &refinedTypes) {
 
   // Fuse operators inside blocks
   for (auto block : blocks) fuseOpsIn(block, graph.get(), refinedTypes);
-}
 
-void printOpsInFusionGroups(const std::shared_ptr<Graph> &graph) {
-  std::unordered_set<std::string> schemas;
-  traversePreOrder(graph->block(), [&](Node *node) {
-    auto parent = node->owningBlock()->owningNode();
-    if (!parent || parent->kind() != prim::FusionGroup) return true;
-    if (!node->maybeSchema()) return true;
-    std::stringstream ss;
-    ss << node->schema();
-    auto schema = ss.str();
-    if (schemas.count(schema)) return true;
-    auto hasShapeFunc = node->isMemberOf(tensorexpr::identicalShapeOps) ||
-                        node->isMemberOf(tensorexpr::shapeFuncs);
-    auto hasComputeFunc = node->isMemberOf(tensorexpr::customLoweringFuncs) ||
-                          bool(tensorexpr::getStandardLoweringFor(schema));
-    print(std::cout, schema, ' ', hasShapeFunc, ' ', hasComputeFunc, '\n');
-    schemas.insert(ss.str());
-    return true;
+  // Replace tensor list inputs with their elements
+  rewrite(graph->block(), [&](Node *node) {
+    if (node->kind() == prim::FusionGroup)
+      fixTensorListInputs(node, refinedTypes);
+    return nullptr;
   });
 }
 

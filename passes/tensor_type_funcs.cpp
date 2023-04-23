@@ -413,11 +413,26 @@ static OperatorSet reshapeOps{
 };
 
 static c10::SymbolicShape inferShapeReshapeOps(INFER_PARAMS) {
-  auto shape = getIntList(node->input(1));
-  if (shape)
-    return *shape;
-  else
-    return {};
+  // Get new shape
+  auto newShape = getIntList(node->input(1));
+  if (!newShape) return {};
+  if (c10::SymbolicShape(*newShape).isComplete()) return *newShape;
+
+  // Get self shape
+  auto selfShape = getShape(node->input(0)->type());
+  if (!selfShape) return *newShape;
+
+  // Try to figure out unknown dimension
+  if (!c10::SymbolicShape(*selfShape).isComplete()) return *newShape;
+  size_t numel = 1;
+  for (auto &d : *selfShape) numel *= *d;
+  int64_t unknownDim = numel;
+  for (auto &d : *newShape)
+    if (*d > 0) unknownDim /= *d;
+  for (auto &d : *newShape)
+    if (*d < 0) d = unknownDim;
+
+  return *newShape;
 }
 
 static OperatorSet permuteOp{

@@ -456,6 +456,7 @@ void GraphBuilder::compile() {
   // std::cout << to_string(l.root_stmt()) << std::endl;
 
   l.inlineIntermediateBufs(true);
+  l.simplify();
 
   auto stmt_ = l.root_stmt();
   refactorForStop(stmt_);
@@ -635,7 +636,6 @@ void GraphBuilder::compile() {
   for (auto& stmt : rootStmts) {
     LoopNest nest(stmt, getStoredBufs(stmt));
     nest.prepareForCodegen();
-    nest.simplify();
   }
 
   {

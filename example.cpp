@@ -185,6 +185,7 @@ int main(int argc, const char *argv[]) {
     FuseOps(graph, refinedTypes);
     dumpGraphToFile(graph, "after_fuse.rb");
     UnrollLoopsWithDeps(graph, refinedTypes);
+    UnrollSimpleMaps(graph, refinedTypes);
     InferShape(graph, refinedTypes);
     FuseOps(graph, refinedTypes);
     dumpGraphToFile(graph, "after_unroll.rb");

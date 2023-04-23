@@ -362,9 +362,6 @@ void ConvertInfusibleMapsToLoops(const std::shared_ptr<Graph> &graph,
   EliminateCommonSubexprTSSA(graph);
 }
 
-static std::unordered_set<Symbol> forbidUnrollSymbols{
-    prim::Loop, prim::If, prim::FusionGroup, prim::ParallelMap};
-
 static size_t countNodesIn(Block *block) {
   size_t numNodes = 0;
   for (auto node = block->nodes().front(); node != block->nodes().back();
@@ -374,9 +371,24 @@ static size_t countNodesIn(Block *block) {
 }
 
 static bool isSimpleMap(Node *parMap) {
+  // Skip if task number is not constant
   auto body = parMap->blocks().front();
   if (parMap->input(0)->node()->kind() != prim::Constant) return false;
-  if (containsAnySymbol(body, forbidUnrollSymbols)) return false;
+
+  // Check each node
+  for (auto node = body->nodes().front(); node != body->nodes().back();
+       node = node->next()) {
+    // Skip if there is any nested block
+    if (!node->blocks().empty()) return false;
+
+    // Skip if any value defined outside the body is used
+    for (auto input : node->inputs()) {
+      auto defNode = input->node();
+      if (defNode->kind() != prim::Constant && defNode->owningBlock() != body)
+        return false;
+    }
+  }
+
   return true;
 }
 
