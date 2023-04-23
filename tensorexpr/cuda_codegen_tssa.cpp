@@ -15,6 +15,7 @@
 #include <torch/csrc/jit/tensorexpr/ir_simplifier.h>
 #include <torch/csrc/jit/tensorexpr/registerizer.h>
 
+#include "ATen/cuda/nvrtc_stub/ATenNVRTC.h"
 #include "tensorexpr/reconstruct_extent.h"
 
 namespace torch {
