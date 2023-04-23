@@ -627,11 +627,11 @@ void GraphBuilder::compile() {
     LONG_TAIL_LOG_INFO(to_string(stmt));
   }
 
-  LONG_TAIL_LOG_INFO("after cse: ");
-  for (auto& stmt : rootStmts) {
-    stmt = eliminateCommonSubexpr(stmt);
-    LONG_TAIL_LOG_INFO(to_string(stmt));
-  }
+  // LONG_TAIL_LOG_INFO("after cse: ");
+  // for (auto& stmt : rootStmts) {
+  //   stmt = eliminateCommonSubexpr(stmt);
+  //   LONG_TAIL_LOG_INFO(to_string(stmt));
+  // }
 
   for (auto& stmt : rootStmts) {
     LoopNest nest(stmt, getStoredBufs(stmt));
