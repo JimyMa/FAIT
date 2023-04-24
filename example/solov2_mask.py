@@ -178,8 +178,8 @@ class SOLOV2Mask(torch.nn.Module):
             mask_preds = torch.nn.functional.conv2d(
                 mask_feats.unsqueeze(0), kernel_preds, stride=1).sigmoid()[0]
             # mask.
-            masks = (mask_preds > 0.5).long()
-            sum_masks = masks.sum((1, 2)).float()
+            masks = (mask_preds > 0.5)
+            sum_masks = masks.long().sum((1, 2)).float()
             keep = sum_masks > strides
             # if keep.sum() == 0:
             # return empty_results(results, cls_scores)

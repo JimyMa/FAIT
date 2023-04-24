@@ -52,6 +52,3 @@ if(ENABLE_TORCH_TRT)
   add_executable(run_net_trt ${PROJECT_SOURCE_DIR}/run_net_trt.cpp)
   target_link_libraries(run_net_trt long-tail)
 endif(ENABLE_TORCH_TRT)
-
-cuda_add_executable(test_cuda ${PROJECT_SOURCE_DIR}/test_cuda.cu)
-target_link_libraries(test_cuda long-tail)

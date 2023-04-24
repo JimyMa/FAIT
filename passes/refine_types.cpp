@@ -287,21 +287,53 @@ static void propagateParallelMap(TYPE_PROP_PARAMS) {
   auto block = node->blocks().front();
   for (auto i = 1u; i < node->inputs().size(); i++) {
     auto inListTy = getRefinedType(node->input(i), refinedTypes);
-    block->inputs()[i]->setType(getUnifiedElementType(inListTy));
+    setRefinedType(block->inputs()[i], getUnifiedElementType(inListTy),
+                   refinedTypes);
   }
 
   // Propagate types inside the block
   propFunc(block, refinedTypes);
 
   // Propagate return types to output lists
-  auto lenIVal = toIValue(node->input(0));
-  auto len = mapOpt<size_t>(
-      lenIVal, [](const IValue &ival) { return size_t(ival.toInt()); });
+  auto len = mapOpt<size_t>(constant_as<int64_t>(node->input(0)),
+                            [](int64_t val) { return size_t(val); });
   for (auto i = 0u; i < node->outputs().size(); i++) {
     auto ret = block->outputs()[i], outList = node->output(i);
     setRefinedType(outList, createRefinedListType(ret->type(), len),
                    refinedTypes);
   }
+}
+
+static void propagateFusionGroup(TYPE_PROP_PARAMS) {
+  // Propagate types
+  auto block = node->blocks().front();
+  for (auto i : c10::irange(node->inputs().size())) {
+    auto input = node->input(i), param = block->inputs()[i];
+    auto refined = getRefinedType(input, refinedTypes);
+    setRefinedType(param, refined, refinedTypes);
+  }
+  propFunc(block, refinedTypes);
+  for (auto i : c10::irange(node->outputs().size())) {
+    auto ret = block->outputs()[i], output = node->output(i);
+    output->setType(ret->type());
+  }
+
+  // Move constants outside of body
+  auto graph = node->owningGraph();
+  rewrite(block, [&](Node *cnstNode) -> Node * {
+    if (cnstNode->kind() != prim::Constant) return nullptr;
+    auto cnst = cnstNode->output(0);
+    auto newCnstNode = graph->createClone(cnstNode, [](Value *v) { return v; })
+                           ->insertBefore(node);
+    auto newCnst = newCnstNode->output(0);
+    if (cnst->type()->kind() == TypeKind::TensorType) {
+      node->addInput(newCnst);
+      auto param = block->addInput()->setType(newCnst->type());
+      cnst->replaceAllUsesWith(param);
+    } else
+      cnst->replaceAllUsesWith(newCnst);
+    return remove(cnstNode);
+  });
 }
 
 static void propagateTssaOps(TYPE_PROP_PARAMS) {
@@ -318,6 +350,7 @@ std::unordered_map<Symbol, void (*)(TYPE_PROP_PARAMS)> symbolPropagators{
     {prim::If, propagateIf},
     {prim::Loop, propagateLoop},
     {prim::ParallelMap, propagateParallelMap},
+    {prim::FusionGroup, propagateFusionGroup},
     {tssa::Assign, propagateTssaOps},
     {tssa::Update, propagateTssaOps},
 };
@@ -521,6 +554,7 @@ static void inferShapeIn(Block *block, ValueTypeMap &refinedTypes) {
         auto shape = (*shapeFuncs.find(*op))(node, refinedTypes);
         for (auto output : outputs) {
           if (!isTensor(output)) continue;
+          if (!shape.rank().has_value()) continue;
           output->setType(
               output->type()->cast<TensorType>()->withSymbolicShapes(shape));
         }
