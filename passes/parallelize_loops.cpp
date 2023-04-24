@@ -215,7 +215,7 @@ static Node *splitAt(Node *prevParMap, Node *splitNode, Graph *graph,
   // Add dependencies between previous and next maps
   for (auto dep : nextDepPrevs) {
     if (prevStraightRets.count(dep)) continue;
-    prevBlock->insertOutput(prevBlock->outputs().size(), dep);
+    prevBlock->registerOutput(dep);
     auto prevOut =
         prevParMap->addOutput()->setType(ListType::create(dep->type()));
     auto refinedListTy = createRefinedListType(
@@ -232,8 +232,8 @@ static Node *splitAt(Node *prevParMap, Node *splitNode, Graph *graph,
                    &refinedTypes);
 
   // Add return values to next block
-  for (auto ret : nextRets)
-    nextBlock->insertOutput(nextBlock->outputs().size(), valueMap.at(ret));
+  for (auto ret : nextRets) nextBlock->registerOutput(valueMap.at(ret));
+  removeDeadRefinedTypes(refinedTypes, graph);
 
   return nextParMap;
 }

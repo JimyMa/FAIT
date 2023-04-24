@@ -134,7 +134,7 @@ def multiclass_nms(multi_bboxes: torch.Tensor,
     score_factors = score_factors.reshape(-1)
     scores = scores * score_factors
 
-    inds = valid_mask.nonzero().squeeze(1)
+    inds = valid_mask.nonzero()[:, 0]
     bboxes, scores, labels = bboxes[inds], scores[inds], labels[inds]
 
     dets, keep = batched_nms(bboxes, scores, labels)

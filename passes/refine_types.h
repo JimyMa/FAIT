@@ -33,7 +33,7 @@ void InferShape(const std::shared_ptr<Graph> &graph,
                 ValueTypeMap &refinedTypes);
 
 inline TypePtr getRefinedType(Value *value, ValueTypeMap &refinedTypes) {
-  if (refinedTypes.count(value))
+  if (value->type()->kind() == TypeKind::ListType && refinedTypes.count(value))
     return refinedTypes[value];
   else
     return value->type();

@@ -169,12 +169,7 @@ static Node* GetParallelledFunctorByFusedOp(
     auto input_ = node->input(i);
     functor_op->addInput(input_);
     // get list size
-    if (refine_types.count(input_)) {
-      auto type = refine_types[input_];
-      input_refine_types.push_back(type);
-    } else {
-      input_refine_types.push_back(input_->type());
-    }
+    input_refine_types.push_back(getRefinedType(input_, refine_types));
   }
 
   functor_op->tys_(c10::tssa::input_refine_types, input_refine_types);

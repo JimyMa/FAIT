@@ -81,7 +81,7 @@ OperatorSet fusableOps{
     "aten::cat(Tensor[] tensors, int dim=0) -> Tensor",
     "aten::stack(Tensor[] tensors, int dim=0) -> Tensor",
     "aten::repeat(Tensor self, SymInt[] repeats) -> Tensor",
-    // "aten::index.Tensor(Tensor self, Tensor?[] indices) -> Tensor",
+    "aten::index.Tensor(Tensor self, Tensor?[] indices) -> Tensor",
     "aten::size.int(Tensor self, int dim) -> int",
     "aten::__getitem__.t(t[](a) list, int idx) -> t(*)",
     "prim::TupleUnpack(Any tup) -> ...",
@@ -142,6 +142,8 @@ static std::unordered_map<Symbol, bool (*)(Node *node)> fusabilityCheckers{
      [](Node *node) { return node->input(0)->node()->kind() != aten::index; }},
 };
 
+static std::unordered_set<Symbol> outOnlySymbols{aten::index};
+
 static bool isFusable(Node *node, bool isOut,
                       const std::unordered_set<Node *> fusedNodes) {
   // Check if the symbol is fusable
@@ -167,6 +169,10 @@ static bool isFusable(Node *node, bool isOut,
       if (!output->type()->castRaw<TensorType>()) return false;
     }
   } else {
+    // Skip if this node can only serve as group output
+    if (outOnlySymbols.count(node->kind())) return false;
+
+    // Skip if any use is not fused
     for (auto output : node->outputs()) {
       if (output->type()->kind() != TypeKind::TensorType &&
           std::any_of(

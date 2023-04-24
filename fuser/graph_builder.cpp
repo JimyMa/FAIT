@@ -48,13 +48,11 @@
 #include "passes/te_op.h"
 #include "passes/tensor_ssa.h"
 #include "tensorexpr/cuda_codegen_tssa.h"
-#include "tensorexpr/elim_common_subexpr.h"
-#include "tensorexpr/evaluate_output_shape.h"
 #include "tensorexpr/extract_common_cond.h"
+#include "tensorexpr/flatten_indices.h"
 #include "tensorexpr/functor_parallization.h"
 #include "tensorexpr/interm_bufs.h"
 #include "tensorexpr/parallel_for_equal_substitution.h"
-#include "tensorexpr/reconstruct_extent.h"
 #include "tensorexpr/tuple_expr.h"
 #include "util/logging.h"
 #include "util/name.h"
@@ -456,7 +454,6 @@ void GraphBuilder::compile() {
   // std::cout << to_string(l.root_stmt()) << std::endl;
 
   l.inlineIntermediateBufs(true);
-  l.simplify();
 
   auto stmt_ = l.root_stmt();
   refactorForStop(stmt_);
@@ -627,20 +624,13 @@ void GraphBuilder::compile() {
     LONG_TAIL_LOG_INFO(to_string(stmt));
   }
 
-  // LONG_TAIL_LOG_INFO("after cse: ");
-  // for (auto& stmt : rootStmts) {
-  //   stmt = eliminateCommonSubexpr(stmt);
-  //   LONG_TAIL_LOG_INFO(to_string(stmt));
-  // }
-
   for (auto& stmt : rootStmts) {
+    stmt = flattenIndices(stmt);
     LoopNest nest(stmt, getStoredBufs(stmt));
     nest.prepareForCodegen();
-  }
-
-  {
+    stmt = nest.root_stmt();
     LONG_TAIL_LOG_INFO("after pre codegen: ");
-    for (auto& stmt : rootStmts) LONG_TAIL_LOG_INFO(to_string(stmt));
+    LONG_TAIL_LOG_INFO(to_string(stmt));
   }
 
   // input
