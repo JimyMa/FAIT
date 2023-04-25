@@ -3,6 +3,7 @@ from typing import List, Tuple
 import numpy as np
 import torch
 import torchvision
+from torch import Tensor
 
 
 class SSDAnchorGenerator(torch.nn.Module):
@@ -27,8 +28,8 @@ class SSDAnchorGenerator(torch.nn.Module):
             anchor_ratio = [1.]
             for r in ratios[k]:
                 anchor_ratio += [1 / r, r]  # 4 or 6 ratio
-            anchor_ratios.append(torch.Tensor(anchor_ratio).cuda())
-            anchor_scales.append(torch.Tensor(scales).cuda())
+            anchor_ratios.append(Tensor(anchor_ratio).cuda())
+            anchor_scales.append(Tensor(scales).cuda())
 
         self.base_sizes = min_sizes
         self.scales = anchor_scales
@@ -38,7 +39,7 @@ class SSDAnchorGenerator(torch.nn.Module):
         self.base_anchors = self.gen_base_anchors()
 
     def gen_base_anchors(self):
-        multi_level_base_anchors: List[torch.Tensor] = []
+        multi_level_base_anchors: List[Tensor] = []
         for i, base_size in enumerate(self.base_sizes):
             base_anchors = self.gen_single_level_base_anchors(
                 base_size,
@@ -84,7 +85,7 @@ class SSDAnchorGenerator(torch.nn.Module):
 
     def forward(self, featmap_sizes: List[Tuple[int, int]], dtype: torch.dtype, device: torch.device):
         # assert self.num_levels == len(featmap_sizes)
-        multi_level_anchors: List[torch.Tensor] = []
+        multi_level_anchors: List[Tensor] = []
         for i in range(self.num_levels):
             anchors = self.single_level_grid_priors(
                 featmap_sizes[i], level_idx=i, dtype=dtype, device=device)
@@ -111,14 +112,14 @@ class SSDAnchorGenerator(torch.nn.Module):
         all_anchors = all_anchors.view(-1, 4)
         return all_anchors
 
-    def _meshgrid(self, x: torch.Tensor, y: torch.Tensor):
+    def _meshgrid(self, x: Tensor, y: Tensor):
         xx = x.repeat(y.size(0))
         yy = y.view(-1, 1).repeat(1, x.size(0)).view(-1)
         return xx, yy
 
 
-def delta2bbox(rois: torch.Tensor,
-               deltas: torch.Tensor
+def delta2bbox(rois: Tensor,
+               deltas: Tensor
                ):
     means = (0., 0., 0., 0.)
     stds = (0.1, 0.1, 0.2, 0.2)
@@ -153,13 +154,13 @@ def delta2bbox(rois: torch.Tensor,
     return bboxes
 
 
-def select_single_mlvl(mlvl_tensors: List[torch.Tensor], batch_id: int):
+def select_single_mlvl(mlvl_tensors: List[Tensor], batch_id: int):
     num_levels = len(mlvl_tensors)
     mlvl_tensor_list = [mlvl_tensors[i][batch_id] for i in range(num_levels)]
     return mlvl_tensor_list
 
 
-def filter_scores_and_topk(scores: torch.Tensor, score_thr: float, topk: int):
+def filter_scores_and_topk(scores: Tensor, score_thr: float, topk: int):
     valid_mask = scores > score_thr
     scores = scores[valid_mask]
     valid_idxs = torch.nonzero(valid_mask)
@@ -171,9 +172,9 @@ def filter_scores_and_topk(scores: torch.Tensor, score_thr: float, topk: int):
     return scores, labels, keep_idxs
 
 
-def batched_nms(boxes: torch.Tensor,
-                scores: torch.Tensor,
-                idxs: torch.Tensor):
+def batched_nms(boxes: Tensor,
+                scores: Tensor,
+                idxs: Tensor):
     iou_threshold = 0.45
     max_coordinate = boxes.max()
     offsets = idxs.to(boxes) * (max_coordinate + 1)
@@ -203,8 +204,8 @@ def batched_nms(boxes: torch.Tensor,
     return boxes, keep
 
 
-def nms_wrapper(boxes: torch.Tensor,
-                scores: torch.Tensor,
+def nms_wrapper(boxes: Tensor,
+                scores: Tensor,
                 iou_threshold: float):
     # assert boxes.size(1) == 4
     # assert boxes.size(0) == scores.size(0)
@@ -228,8 +229,8 @@ class SSDBBox(torch.nn.Module):
         )
 
     def forward(self,
-                cls_scores: List[torch.Tensor],
-                bbox_preds: List[torch.Tensor]):
+                cls_scores: List[Tensor],
+                bbox_preds: List[Tensor]):
         # cls_scores: [torch.Size([1, 486, 20, 20]), torch.Size([1, 486, 10, 10]), torch.Size([1, 486, 5, 5]), torch.Size([1, 486, 3, 3]), torch.Size([1, 486, 2, 2]), torch.Size([1, 486, 1, 1])]
         # bbox_preds: [torch.Size([1, 24, 20, 20]), torch.Size([1, 24, 10, 10]), torch.Size([1, 24, 5, 5]), torch.Size([1, 24, 3, 3]), torch.Size([1, 24, 2, 2]), torch.Size([1, 24, 1, 1])]
         # assert len(cls_scores) == len(bbox_preds)
@@ -240,7 +241,7 @@ class SSDBBox(torch.nn.Module):
             dtype=cls_scores[0].dtype,
             device=cls_scores[0].device)
 
-        result_list: List[Tuple[torch.Tensor, torch.Tensor]] = []
+        result_list: List[Tuple[Tensor, Tensor]] = []
         for img_id in range(cls_scores[0].size(0)):
             cls_score_list = select_single_mlvl(cls_scores, img_id)
             bbox_pred_list = select_single_mlvl(bbox_preds, img_id)
@@ -251,9 +252,9 @@ class SSDBBox(torch.nn.Module):
         return result_list
 
     def _get_bboxes_single(self,
-                           cls_score_list: List[torch.Tensor],
-                           bbox_pred_list: List[torch.Tensor],
-                           mlvl_priors: List[torch.Tensor]):
+                           cls_score_list: List[Tensor],
+                           bbox_pred_list: List[Tensor],
+                           mlvl_priors: List[Tensor]):
         nms_pre = 1000
         score_thr = 0.02
 

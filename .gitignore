@@ -3,6 +3,7 @@
 cmake-build-debug
 build
 *.pt
+*.pyc
 *.rb
 compile_commands.json
 

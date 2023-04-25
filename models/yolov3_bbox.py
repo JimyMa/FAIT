@@ -1,20 +1,12 @@
 from typing import List, Tuple
 
+from torch import Tensor
+
 import torch
 import torchvision
 
 test_cfg = {'nms_pre': 1000, 'min_bbox_size': 0, 'score_thr': 0.05, 'conf_thr': 0.005,
             'nms': {'type': 'nms', 'iou_threshold': 0.45}, 'max_per_img': 100}
-
-
-# from mmdet.apis import init_detector, inference_detector
-# import numpy as np
-
-# config_file = 'configs/yolo/yolov3_mobilenetv2_320_300e_coco.py'
-# checkpoint_file = 'checkpoints/yolov3_mobilenetv2_320_300e_coco_20210719_215349-d18dff72.pth'
-# model = init_detector(config_file, checkpoint_file, device='cpu')  # or device='cuda:0'
-# inference_detector(model, np.random.random(
-#     size=(320, 320, 3)).astype('float32'))
 
 
 def decode_bboxes(bboxes, pred_bboxes, stride):
@@ -50,7 +42,7 @@ class YOLOAnchorGenerator(torch.nn.Module):
         return len(self.base_sizes)
 
     def gen_base_anchors(self):
-        multi_level_base_anchors: List[torch.Tensor] = []
+        multi_level_base_anchors: List[Tensor] = []
         for i, base_sizes_per_level in enumerate(self.base_sizes):
             center = None
             if self.centers is not None:
@@ -65,7 +57,7 @@ class YOLOAnchorGenerator(torch.nn.Module):
         base_anchors = []
         for base_size in base_sizes_per_level:
             w, h = base_size
-            base_anchor = torch.Tensor([
+            base_anchor = Tensor([
                 x_center - 0.5 * w, y_center - 0.5 * h, x_center + 0.5 * w,
                 y_center + 0.5 * h
             ])
@@ -103,15 +95,15 @@ class YOLOAnchorGenerator(torch.nn.Module):
 
         return all_anchors
 
-    def _meshgrid(self, x: torch.Tensor, y: torch.Tensor):
+    def _meshgrid(self, x: Tensor, y: Tensor):
         xx = x.repeat(y.size(0))
         yy = y.reshape(-1, 1).repeat(1, x.size(0)).reshape(-1)
         return xx, yy
 
 
-def multiclass_nms(multi_bboxes: torch.Tensor,
-                   multi_scores: torch.Tensor,
-                   score_factors: torch.Tensor):
+def multiclass_nms(multi_bboxes: Tensor,
+                   multi_scores: Tensor,
+                   score_factors: Tensor):
     score_thr = 0.05
     max_num = 100
 
@@ -144,9 +136,9 @@ def multiclass_nms(multi_bboxes: torch.Tensor,
     return dets, labels[keep]
 
 
-def batched_nms(boxes: torch.Tensor,
-                scores: torch.Tensor,
-                idxs: torch.Tensor):
+def batched_nms(boxes: Tensor,
+                scores: Tensor,
+                idxs: Tensor):
     iou_threshold = 0.45
 
     max_coordinate = boxes.max()
@@ -177,8 +169,8 @@ def batched_nms(boxes: torch.Tensor,
     return boxes, keep
 
 
-def nms_wrapper(boxes: torch.Tensor,
-                scores: torch.Tensor,
+def nms_wrapper(boxes: Tensor,
+                scores: Tensor,
                 iou_threshold: float):
     # assert boxes.size(1) == 4
     # assert boxes.size(0) == scores.size(0)
@@ -198,7 +190,8 @@ class YOLOV3BBox(torch.nn.Module):
                         [(30, 61), (62, 45), (59, 119)],
                         [(10, 13), (16, 30), (33, 23)]],)
 
-    def forward(self, pred_maps: List[torch.Tensor]):
+    def forward(self, pred_maps: List[Tensor]):
+        # pred_maps = [torch.Size([1, 255, 10, 10]), torch.Size([1, 255, 20, 20]), torch.Size([1, 255, 40, 40])]
         featmap_strides = [32, 16, 8]
         num_imgs = pred_maps[0].size(0)
         featmap_sizes = [(pred_map.size(-2), pred_map.size(-1))
@@ -229,7 +222,7 @@ class YOLOV3BBox(torch.nn.Module):
         padding = flatten_bboxes.new_zeros(num_imgs, flatten_bboxes.size(1), 1)
         flatten_cls_scores = torch.cat([flatten_cls_scores, padding], dim=-1)
 
-        det_results: List[Tuple[torch.Tensor, torch.Tensor]] = []
+        det_results: List[Tuple[Tensor, Tensor]] = []
         for (bboxes, scores, objectness) in zip(flatten_bboxes,
                                                 flatten_cls_scores,
                                                 flatten_objectness):
@@ -244,9 +237,7 @@ class YOLOV3BBox(torch.nn.Module):
 
 
 if __name__ == '__main__':
-    # pred_maps = [torch.Size([1, 255, 10, 10]), torch.Size([1, 255, 20, 20]), torch.Size([1, 255, 40, 40])]
     mod = YOLOV3BBox().cuda().eval()
     mod = torch.jit.script(mod)
-    # mod = torch.jit.freeze(mod)
     print(mod.graph)
     torch.jit.save(mod, 'yolov3_bbox.pt')
