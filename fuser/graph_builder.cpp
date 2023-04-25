@@ -3,46 +3,10 @@
 //
 #include "fuser/graph_builder.h"
 
-#include <ATen/ExpandUtils.h>
-#include <ATen/Parallel.h>
-#include <ATen/TensorGeometry.h>
-#include <ATen/core/List.h>
-#include <ATen/core/TensorBody.h>
-#include <ATen/core/interned_strings.h>
-#include <ATen/core/jit_type.h>
-#include <ATen/core/jit_type_base.h>
-#include <ATen/core/stack.h>
-#include <c10/core/DeviceType.h>
-#include <c10/core/ScalarType.h>
-#include <c10/core/ScalarTypeToTypeMeta.h>
-#include <c10/util/Exception.h>
-#include <c10/util/irange.h>
-#include <c10/util/string_utils.h>
-#include <c10/util/variant.h>
-#include <torch/csrc/jit/ir/constants.h>
-#include <torch/csrc/jit/jit_log.h>
-#include <torch/csrc/jit/passes/graph_rewrite_helper.h>
-#include <torch/csrc/jit/passes/symbolic_shape_runtime_fusion.h>
 #include <torch/csrc/jit/tensorexpr/analysis.h>
-#include <torch/csrc/jit/tensorexpr/exceptions.h>
-#include <torch/csrc/jit/tensorexpr/expr.h>
-#include <torch/csrc/jit/tensorexpr/fwd_decls.h>
-#include <torch/csrc/jit/tensorexpr/graph_opt.h>
-#include <torch/csrc/jit/tensorexpr/ir.h>
 #include <torch/csrc/jit/tensorexpr/ir_cloner.h>
-#include <torch/csrc/jit/tensorexpr/ir_printer.h>
-#include <torch/csrc/jit/tensorexpr/ir_simplifier.h>
-#include <torch/csrc/jit/tensorexpr/ir_verifier.h>
-#include <torch/csrc/jit/tensorexpr/kernel.h>
 #include <torch/csrc/jit/tensorexpr/loopnest.h>
-#include <torch/csrc/jit/tensorexpr/loopnest_randomization.h>
 #include <torch/csrc/jit/tensorexpr/lowerings.h>
-#include <torch/csrc/jit/tensorexpr/operators/operators.h>
-#include <torch/csrc/jit/tensorexpr/types.h>
-
-#include <memory>
-#include <unordered_map>
-#include <utility>
 
 #include "fuser/codegen.h"
 #include "passes/te_op.h"
@@ -99,10 +63,10 @@ VarHandle GraphBuilder::get_const_var_by_value(const Value* value) {
 
 GraphBuilder::GraphBuilder(const Node* node)
     : graph_(node->g(attr::Subgraph)),
-      refined_types_(node->tys(c10::tssa::input_refine_types)),
-      is_parallelled_args_(node->is(c10::tssa::is_parallelled_args)),
-      degree_(node->i(c10::tssa::parallel_degree)),
-      is_parallel_map_(node->i(c10::tssa::is_parallel_map)) {
+      refined_types_(node->tys(attr::input_refine_types)),
+      is_parallelled_args_(node->is(attr::is_parallel_args)),
+      degree_(node->i(attr::parallel_degree)),
+      is_parallel_map_(node->i(attr::is_parallel_map)) {
   compile();
 }
 

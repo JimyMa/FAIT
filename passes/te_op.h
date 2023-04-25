@@ -10,27 +10,32 @@
 namespace c10 {
 namespace tssa {
 
-static auto ParallelledFunctor =
-    Symbol::fromQualString("tssa::ParallelledFunctor");
+static auto ParallelFunctor = Symbol::fromQualString("tssa::ParallelFunctor");
+
+}  // namespace tssa
+
+namespace attr {
+
 static auto parallel_degree = Symbol::fromQualString("attr::parallel_degree");
-static auto is_parallelled_args =
-    Symbol::fromQualString("attr::is_parallelled_args");
+static auto is_parallel_args = Symbol::fromQualString("attr::is_parallel_args");
 static auto input_refine_types =
     Symbol::fromQualString("attr::input_refine_types");
 static auto is_parallel_map = Symbol::fromQualString("attr::is_parallel_map");
 
-}  // namespace tssa
+}  // namespace attr
+
 }  // namespace c10
 
 namespace torch {
 namespace jit {
 
-void MapFunctorToParallization(
+void MapFunctorToParallelization(
     const std::shared_ptr<Graph> &graph,
     std::unordered_map<Value *, TypePtr> &refine_types);
 
-void FusedOpToParallization(const std::shared_ptr<Graph> &graph,
-                            std::unordered_map<Value *, TypePtr> &refine_types);
+void FusedOpToParallelization(
+    const std::shared_ptr<Graph> &graph,
+    std::unordered_map<Value *, TypePtr> &refine_types);
 
 }  // namespace jit
 }  // namespace torch

@@ -31,11 +31,11 @@ void runPasses(const std::shared_ptr<Graph>& graph) {
   ConstantPooling(graph);
 }
 
-static Node* GetParallelledFunctorByParallelMap(
+static Node* GetParallelFunctorByParallelMap(
     Node* node, std::unordered_map<Value*, TypePtr>& refine_types) {
   // Construct an op
   auto functor_op =
-      node->owningGraph()->createWithSubgraph(c10::tssa::ParallelledFunctor);
+      node->owningGraph()->createWithSubgraph(tssa::ParallelFunctor);
 
   auto subgraph = functor_op->g(attr::Subgraph);
 
@@ -58,8 +58,8 @@ static Node* GetParallelledFunctorByParallelMap(
     }
   }
 
-  functor_op->i_(c10::tssa::parallel_degree, input_degree);
-  functor_op->i_(c10::tssa::is_parallel_map, true);
+  functor_op->i_(attr::parallel_degree, input_degree);
+  functor_op->i_(attr::is_parallel_map, true);
 
   for (auto output : node->outputs()) {
     auto functor_op_output = functor_op->addOutput();
@@ -82,20 +82,20 @@ static Node* GetParallelledFunctorByParallelMap(
   for (auto input_ : node->blocks()[0]->inputs())
     parallelled_args.insert(input_);
 
-  std::vector<int64_t> is_parallelled_args;
+  std::vector<int64_t> is_parallel_args;
 
   for (auto i : c10::irange(1, fusion_group->inputs().size())) {
     auto input_ = fusion_group->input(i);
     if (!parallelled_args.count(input_)) {
       functor_op->addInput(input_);
       input_refine_types.push_back(input_->type());
-      is_parallelled_args.push_back(0);
+      is_parallel_args.push_back(0);
     } else
-      is_parallelled_args.push_back(1);
+      is_parallel_args.push_back(1);
   }
 
-  functor_op->is_(c10::tssa::is_parallelled_args, is_parallelled_args);
-  functor_op->tys_(c10::tssa::input_refine_types, input_refine_types);
+  functor_op->is_(attr::is_parallel_args, is_parallel_args);
+  functor_op->tys_(attr::input_refine_types, input_refine_types);
 
   for (int i = 0; i < fusion_group->blocks()[0]->inputs().size(); i++) {
     auto input_ = fusion_group->blocks()[0]->inputs()[i];
@@ -132,34 +132,24 @@ static Node* GetParallelledFunctorByParallelMap(
   return functor_op;
 }
 
-static void MapFunctorToParallizationBlock(
-    Block* block, std::unordered_map<Value*, TypePtr>& refine_types) {
-  for (auto node = block->nodes().front(); node != block->nodes().back();) {
-    if (node->kind() == c10::prim::ParallelMap) {
-      auto parallelled_functor_op =
-          GetParallelledFunctorByParallelMap(node, refine_types);
-      replace(node, parallelled_functor_op);
-      node = parallelled_functor_op;
-    } else {
-      for (auto node_block : node->blocks()) {
-        MapFunctorToParallizationBlock(node_block, refine_types);
-      }
-    }
-    node = node->next();
-  }
-}
-
-void MapFunctorToParallization(
+void MapFunctorToParallelization(
     const std::shared_ptr<Graph>& graph,
     std::unordered_map<Value*, TypePtr>& refine_types) {
-  MapFunctorToParallizationBlock(graph->block(), refine_types);
+  rewrite(graph->block(), [&](Node* node) -> Node* {
+    if (node->kind() == prim::ParallelMap) {
+      auto parallel_functor_op =
+          GetParallelFunctorByParallelMap(node, refine_types);
+      return replace(node, parallel_functor_op);
+    } else
+      return nullptr;
+  });
 }
 
-static Node* GetParallelledFunctorByFusedOp(
+static Node* GetParallelFunctorByFusedOp(
     Node* node, std::unordered_map<Value*, TypePtr>& refine_types) {
   // Construct an op
   auto functor_op =
-      node->owningGraph()->createWithSubgraph(c10::tssa::ParallelledFunctor);
+      node->owningGraph()->createWithSubgraph(tssa::ParallelFunctor);
 
   auto subgraph = functor_op->g(attr::Subgraph);
 
@@ -172,9 +162,9 @@ static Node* GetParallelledFunctorByFusedOp(
     input_refine_types.push_back(getRefinedType(input_, refine_types));
   }
 
-  functor_op->tys_(c10::tssa::input_refine_types, input_refine_types);
-  functor_op->i_(c10::tssa::parallel_degree, input_degree);
-  functor_op->i_(c10::tssa::is_parallel_map, false);
+  functor_op->tys_(attr::input_refine_types, input_refine_types);
+  functor_op->i_(attr::parallel_degree, input_degree);
+  functor_op->i_(attr::is_parallel_map, false);
 
   for (auto output : node->outputs()) {
     auto functor_op_output = functor_op->addOutput();
@@ -195,9 +185,8 @@ static Node* GetParallelledFunctorByFusedOp(
   for (auto input_ : node->blocks()[0]->inputs())
     parallelled_args.insert(input_);
 
-  std::vector<int64_t> is_parallelled_args(node->blocks()[0]->inputs().size(),
-                                           1);
-  functor_op->is_(c10::tssa::is_parallelled_args, is_parallelled_args);
+  std::vector<int64_t> is_parallel_args(node->blocks()[0]->inputs().size(), 1);
+  functor_op->is_(attr::is_parallel_args, is_parallel_args);
 
   // placeholder for axis
   subgraph->addInput()->setType(c10::NoneType::get());
@@ -233,31 +222,17 @@ static Node* GetParallelledFunctorByFusedOp(
   return functor_op;
 }
 
-static void FusedOpToParallizationBlock(
-    Block* block, std::unordered_map<Value*, TypePtr>& refine_types) {
-  for (auto node = block->nodes().front(); node != block->nodes().back();) {
+void FusedOpToParallelization(
+    const std::shared_ptr<Graph>& graph,
+    std::unordered_map<Value*, TypePtr>& refine_types) {
+  rewrite(graph->block(), [&](Node* node) -> Node* {
     if (node->kind() == prim::FusionGroup) {
       auto parallelled_functor_op =
-          GetParallelledFunctorByFusedOp(node, refine_types);
-      // print(std::cout, parallelled_functor_op->schema());
-      replace(node, parallelled_functor_op);
-      node = parallelled_functor_op;
-    } else {
-      for (auto node_block : node->blocks()) {
-        FusedOpToParallizationBlock(node_block, refine_types);
-      }
-    }
-    node = node->next();
-  }
-}
-
-void FusedOpToParallization(const std::shared_ptr<Graph>& graph,
-                            std::unordered_map<Value*, TypePtr>& refine_types) {
-  // std::cout << "before fuse: " << std::endl;
-  // graph->dump();
-  FusedOpToParallizationBlock(graph->block(), refine_types);
-  //   std::cout << "after fuse: " << std::endl;
-  //   graph->dump();
+          GetParallelFunctorByFusedOp(node, refine_types);
+      return replace(node, parallelled_functor_op);
+    } else
+      return nullptr;
+  });
 }
 
 static Operation CreateTeOperator(const Node* node) {
@@ -269,8 +244,8 @@ static Operation CreateTeOperator(const Node* node) {
 }
 
 RegisterOperators ParallelOps({
-    torch::jit::Operator(c10::tssa::ParallelledFunctor, CreateTeOperator,
-                         AliasAnalysisKind::INTERNAL_SPECIAL_CASE),
+    torch::jit::Operator(tssa::ParallelFunctor, CreateTeOperator,
+                         AliasAnalysisKind::PURE_FUNCTION),
 });
 
 }  // namespace jit

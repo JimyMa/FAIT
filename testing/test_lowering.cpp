@@ -142,8 +142,8 @@ static void createFusedFunctor(const std::shared_ptr<Graph> &graph) {
   commitFusion(head, tail, graph.get(), refinedTypes);
 
   // Create fusion functor
-  FusedOpToParallization(graph, refinedTypes);
-  MapFunctorToParallization(graph, refinedTypes);
+  FusedOpToParallelization(graph, refinedTypes);
+  MapFunctorToParallelization(graph, refinedTypes);
 }
 
 static auto rng = at::make_generator<at::CUDAGeneratorImpl>();

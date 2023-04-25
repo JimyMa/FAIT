@@ -195,8 +195,8 @@ int main(int argc, const char *argv[]) {
     ConvertInfusibleMapsToLoops(graph, refinedTypes);
     CanonicalizeFusableMaps(graph);
     dumpGraphToFile(graph, "after_back.rb");
-    MapFunctorToParallization(graph, refinedTypes);
-    FusedOpToParallization(graph, refinedTypes);
+    MapFunctorToParallelization(graph, refinedTypes);
+    FusedOpToParallelization(graph, refinedTypes);
     dumpGraphToFile(graph, "after_codegen.rb");
     Validate(graph);
   } catch (std::exception &err) {
