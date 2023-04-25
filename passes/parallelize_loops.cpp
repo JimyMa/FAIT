@@ -233,7 +233,6 @@ static Node *splitAt(Node *prevParMap, Node *splitNode, Graph *graph,
 
   // Add return values to next block
   for (auto ret : nextRets) nextBlock->registerOutput(valueMap.at(ret));
-  removeDeadRefinedTypes(refinedTypes, graph);
 
   return nextParMap;
 }

@@ -50,11 +50,18 @@ static TypePtr convertToMatch(TypePtr src, TypePtr tgt) {
 
 void setRefinedType(Value *value, const TypePtr &newType,
                     ValueTypeMap &refinedTypes) {
-  auto &uses = value->uses();
+  // No need to refine non-list types
+  if (value->type()->kind() != TypeKind::ListType) {
+    value->setType(newType);
+    return;
+  }
+
+  // Refine list type while avoiding invalidating schema
   TypePtr matched = nullptr;
-  if (value->type()->kind() == TypeKind::ListType &&
-      std::any_of(uses.begin(), uses.end(),
+  auto &uses = value->uses();
+  if (std::any_of(uses.begin(), uses.end(),
                   [](const Use &use) { return use.user->maybeSchema(); })) {
+    // cannot update value type if it is used by a node with schema
     matched = value->type();
   } else {
     matched = convertToMatch(newType, value->type());
