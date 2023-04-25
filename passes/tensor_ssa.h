@@ -17,13 +17,18 @@ namespace jit {
 
 namespace tssa = c10::tssa;
 
-inline Node *createTssaAssign(Graph *graph, Value *dst, Value *src) {
-  return graph->create(tssa::Assign, {dst, src});
+inline Node *createTssaAssign(Graph *graph, Value *self, Value *src) {
+  return graph->create(tssa::Assign, {self, src});
 }
 
-inline Node *createTssaUpdate(Graph *graph, Value *tensor, Value *cause) {
-  return graph->create(tssa::Update, {tensor, cause});
+inline Node *createTssaUpdate(Graph *graph, Value *self, Value *cause) {
+  return graph->create(tssa::Update, {self, cause});
 }
+
+/// @brief Register `tssa::Assign` and `tssa::Update`. Call this function if
+/// they are needed in the pass.
+/// @return Operator registry.
+RegisterOperators registerTssaOps();
 
 /// @brief Convert a graph to TensorSSA form. All mutations of tensors will be
 /// eliminated.

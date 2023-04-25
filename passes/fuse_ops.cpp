@@ -3,8 +3,6 @@
 #include <torch/csrc/jit/ir/ir_views.h>
 #include <torch/csrc/jit/tensorexpr/operators/operators.h>
 
-#include "fuser/nnc_func.h"
-#include "fuser/tssa_set_ops.h"
 #include "parallelize_loops.h"
 #include "tensor_ssa.h"
 #include "type_utils.h"
@@ -15,7 +13,7 @@
 namespace torch {
 namespace jit {
 
-static auto registry = registerTssaSetOps();
+static auto _tssaOps = registerTssaOps();
 
 OperatorSet fusableOps{
     "aten::tensor.bool(bool t, *, ScalarType? dtype=None, Device? device=None, "
@@ -86,10 +84,13 @@ OperatorSet fusableOps{
     "aten::__getitem__.t(t[](a) list, int idx) -> t(*)",
     "prim::TupleUnpack(Any tup) -> ...",
     "tssa::Assign(Tensor self, Tensor src) -> Tensor",
+    "tssa::Update(Tensor self, Tensor cause) -> Tensor",
 };
 
 static std::unordered_set<Symbol> fusableNoOpSymbols{
-    tssa::Update, prim::ListConstruct, prim::ListUnpack};
+    prim::ListConstruct,
+    prim::ListUnpack,
+};
 
 static std::unordered_set<Symbol> workingSymbols{
     // Tensor creation/conversion

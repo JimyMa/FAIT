@@ -9,6 +9,16 @@
 namespace torch {
 namespace jit {
 
+static bool _registered = false;
+
+RegisterOperators registerTssaOps() {
+  if (_registered) return {};
+  _registered = true;
+  return RegisterOperators()
+      .op("tssa::Assign(Tensor self, Tensor src) -> Tensor")
+      .op("tssa::Update(Tensor self, Tensor cause) -> Tensor");
+}
+
 static Node *rewriteMutating(
     Node *node, Graph *graph, DisjointSets<Value *> &aliasSets,
     std::vector<Value *> &mutValues,
