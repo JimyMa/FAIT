@@ -2,7 +2,6 @@
 
 #include <ATen/ATen.h>
 #include <ATen/cuda/CUDAContext.h>
-#include <ATen/cuda/nvrtc_stub/ATenNVRTC.h>
 #include <c10/cuda/CUDACachingAllocator.h>
 #include <c10/cuda/CUDAGuard.h>
 #include <torch/csrc/jit/resource_guard.h>
@@ -17,6 +16,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#include "ATenNVRTC.h"
 #include "tensorexpr/evaluate_dim.h"
 
 namespace torch {

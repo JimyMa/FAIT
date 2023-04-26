@@ -1,6 +1,7 @@
 #include "tensorexpr/cuda_codegen_tssa.h"
 
 #include <ATen/cuda/CUDAGeneratorImpl.h>
+#include <ATen/native/cuda/jit_utils.h>
 #include <c10/cuda/CUDAFunctions.h>
 #include <c10/util/irange.h>
 #include <torch/csrc/jit/codegen/cuda/executor_utils.h>
@@ -15,24 +16,11 @@
 #include <torch/csrc/jit/tensorexpr/ir_simplifier.h>
 #include <torch/csrc/jit/tensorexpr/registerizer.h>
 
-#include "ATen/cuda/nvrtc_stub/ATenNVRTC.h"
 #include "tensorexpr/reconstruct_extent.h"
 
 namespace torch {
 namespace jit {
 namespace tensorexpr {
-
-void initializeCudaContext() {
-  // lazily construct context if non-existing yet;
-  // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
-  CUcontext pctx = nullptr;
-  AT_CUDA_DRIVER_CHECK(at::globalContext().getNVRTC().cuCtxGetCurrent(&pctx));
-  if (!pctx) {
-    std::unique_lock<std::mutex> cudaFreeMutexLock(
-        *(c10::cuda::getFreeMutex()));
-    C10_CUDA_CHECK(cudaFree(nullptr));
-  }
-}
 
 // A RAII wrapper to manage a variable and name pair in the look-up table.
 // TODO: move this to a more shared place.
@@ -1167,7 +1155,7 @@ void CudaCodeGenTssa::call_with_numel(void** args, int64_t numel) {
   }
 
   auto stream = at::cuda::getCurrentCUDAStream();
-  initializeCudaContext();
+  at::cuda::jit::initializeCudaContext();
   AT_CUDA_DRIVER_CHECK(nvrtc().cuLaunchKernel(
       function_, gpu_block_extents, 1, 1, gpu_thread_extents, 1, 1, 0, stream,
       ptr_to_args.data(), nullptr));
@@ -1290,7 +1278,7 @@ void CudaCodeGenTssa::call_raw(const std::vector<void*>& raw_args) {
   }
   // Launch the kernels
   auto stream = at::cuda::getCurrentCUDAStream();
-  initializeCudaContext();
+  at::cuda::jit::initializeCudaContext();
   AT_CUDA_DRIVER_CHECK(nvrtc().cuLaunchKernel(
       function_, gpu_block_extents_v[0], gpu_block_extents_v[1],
       gpu_block_extents_v[2], gpu_thread_extents_v[0], gpu_thread_extents_v[1],
@@ -1329,7 +1317,7 @@ at::Tensor CudaCodeGenTssa::empty_strided(
 
 void CudaCodeGenTssa::CompileToNVRTC(const std::string& code,
                                      const std::string& func_name) {
-  initializeCudaContext();
+  at::cuda::jit::initializeCudaContext();
   // Note: hacked at::DeviceGuard since at::DeviceGuard was failing to work
   // properly in some scenarios
   auto prior_device = at::cuda::current_device();
