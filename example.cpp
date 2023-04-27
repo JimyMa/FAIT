@@ -142,6 +142,8 @@ static IValue processIValue(const IValue &val) {
     std::vector<IValue> newValues;
     for (auto &elem : tuple) newValues.push_back(processIValue(elem));
     return c10::ivalue::Tuple::create(std::move(newValues));
+  } else if (val.isTensor()) {
+    return val.toTensor().cuda();
   } else
     return val;
 }

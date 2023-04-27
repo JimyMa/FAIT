@@ -76,7 +76,7 @@ static CompileSpec getFlattenedSpec(const std::vector<TypePtr> &inputTypes) {
 
 static void flattenIValue(const IValue &ival, Stack &inputs) {
   if (ival.isTensor()) {
-    inputs.push_back(ival);
+    inputs.push_back(ival.toTensor().cuda());
   } else if (ival.isTuple()) {
     auto &tup = ival.toTupleRef().elements();
     for (auto &elem : tup) flattenIValue(elem, inputs);
