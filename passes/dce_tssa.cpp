@@ -161,7 +161,7 @@ class DeadCodeEliminator {
     bool anyMarked = false;
     // Mark all nodes with side effects.
     for (auto node : block->nodes()) {
-      if (isMutating(node)) {
+      if (isMutating(node) || hasSideEffects(node)) {
         anyMarked |= mark(node);
       }
     }

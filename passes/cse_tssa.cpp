@@ -12,6 +12,9 @@ using SubexprSet = std::unordered_set<Node *, HashNode, EqualNode>;
 static std::unordered_set<Symbol> ignoredSymbols{prim::ListConstruct};
 
 static bool mayConsider(Node *node) {
+  // Skip nodes with no outputs
+  if (node->outputs().empty()) return false;
+
   // Skip certain symbols
   if (ignoredSymbols.count(node->kind())) return false;
 

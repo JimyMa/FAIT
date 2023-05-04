@@ -11,6 +11,9 @@ static bool producesLoopInvariants(Node *node, Block *body) {
   // All constants are loop variants
   if (node->kind() == prim::Constant) return true;
 
+  // Skip nodes with no outputs
+  if (node->outputs().empty()) return false;
+
   // Skip nodes with blocks
   if (!node->blocks().empty()) return false;
 

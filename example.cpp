@@ -1,16 +1,5 @@
-#include <ATen/ATen.h>
 #include <ATen/Context.h>
-#include <ATen/core/interned_strings.h>
-#include <ATen/core/ivalue.h>
-#include <ATen/core/jit_type.h>
-#include <ATen/cuda/CUDAGeneratorImpl.h>
 #include <ATen/ops/allclose.h>
-#include <c10/core/DeviceType.h>
-#include <c10/core/ScalarType.h>
-#include <c10/cuda/CUDAFunctions.h>
-#include <torch/csrc/jit/api/function_impl.h>
-#include <torch/csrc/jit/ir/ir.h>
-#include <torch/csrc/jit/runtime/interpreter.h>
 #include <torch/csrc/jit/serialization/import.h>
 #include <torch/serialize.h>
 #include <torchvision/vision.h>
@@ -131,31 +120,6 @@ static void dumpStruct(const IValue &val, size_t indent = 0) {
   }
 }
 
-static IValue processIValue(const IValue &val) {
-  if (val.isList()) {
-    auto list = val.toListRef();
-    c10::impl::GenericList newList(list.front().type());
-    for (auto &elem : list) newList.push_back(processIValue(elem));
-    return std::move(newList);
-  } else if (val.isTuple()) {
-    auto &tuple = val.toTupleRef().elements();
-    std::vector<IValue> newValues;
-    for (auto &elem : tuple) newValues.push_back(processIValue(elem));
-    return c10::ivalue::Tuple::create(std::move(newValues));
-  } else if (val.isTensor()) {
-    return val.toTensor().cuda();
-  } else
-    return val;
-}
-
-static Stack getSample(const c10::List<IValue> &dataset, size_t index) {
-  auto tup = dataset.get(index).toTupleRef().elements();
-  Stack inputs;
-  inputs.push_back({});
-  for (auto &val : tup) inputs.push_back(processIValue(val));
-  return std::move(inputs);
-}
-
 int main(int argc, const char *argv[]) {
   if (argc < 3) {
     std::cerr << "usage: example <script-module> <input-types> <input-data>?\n";
@@ -171,6 +135,7 @@ int main(int argc, const char *argv[]) {
   }
   Freeze(&mod);
   auto graph = mod.get_method("forward").graph();
+  ConvertProfilingInstrumentation(graph);
   dumpGraphToFile(graph, "after_freeze.rb");
   auto origin_graph = graph->copy();
   auto inputTypes = parseInputTypes(argv[2]);
@@ -223,11 +188,12 @@ int main(int argc, const char *argv[]) {
   GraphFunction origin_function("original", origin_graph, nullptr);
 
   Stack stack;
+  disableProfiling();
   for (auto i : c10::irange(numSamples)) {
-    stack = getSample(dataset, i);
+    stack = getFeatureSample(dataset, i);
     torch::jit::InterpreterState(code).run(stack);
     auto output_tss_parallel = stack;
-    stack = getSample(dataset, i);
+    stack = getFeatureSample(dataset, i);
     origin_function.run(stack);
     auto output_origin = stack;
     try {
@@ -238,18 +204,14 @@ int main(int argc, const char *argv[]) {
     }
   }
 
+  enableProfiling();
   {
     auto dur = evaluate([&](size_t i) {
-      auto stack = getSample(dataset, i % numSamples);
+      auto stack = getFeatureSample(dataset, i % numSamples);
       torch::jit::InterpreterState(code).run(stack);
     });
     print(std::cout, "long tail latency: ", fmtDuration(dur), '\n');
   }
-  {
-    auto dur = evaluate([&](size_t i) {
-      auto stack = getSample(dataset, i % numSamples);
-      origin_function.run(stack);
-    });
-    print(std::cout, "ts latency: ", fmtDuration(dur), '\n');
-  }
+
+  printProfilingResults();
 }

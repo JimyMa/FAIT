@@ -7,6 +7,7 @@
 #include <iomanip>
 
 #include "util/common.h"
+#include "util/profile.h"
 
 namespace torch {
 namespace jit {
@@ -21,6 +22,31 @@ inline T loadPickle(const std::string &path) {
   std::vector<char> buf((std::istreambuf_iterator<char>(ifs)),
                         std::istreambuf_iterator<char>());
   return torch::pickle_load(buf).to<T>();
+}
+
+inline IValue processIValue(const IValue &val) {
+  if (val.isList()) {
+    auto list = val.toListRef();
+    c10::impl::GenericList newList(list.front().type());
+    for (auto &elem : list) newList.push_back(processIValue(elem));
+    return std::move(newList);
+  } else if (val.isTuple()) {
+    auto &tuple = val.toTupleRef().elements();
+    std::vector<IValue> newValues;
+    for (auto &elem : tuple) newValues.push_back(processIValue(elem));
+    return c10::ivalue::Tuple::create(std::move(newValues));
+  } else if (val.isTensor()) {
+    return val.toTensor().cuda();
+  } else
+    return val;
+}
+
+inline Stack getFeatureSample(const c10::List<IValue> &dataset, size_t index) {
+  auto tup = dataset.get(index).toTupleRef().elements();
+  Stack inputs;
+  inputs.push_back({});
+  for (auto &val : tup) inputs.push_back(processIValue(val));
+  return std::move(inputs);
 }
 
 static constexpr auto kWarmupRuns = 16;
@@ -39,21 +65,8 @@ inline auto evaluate(const std::function<void(size_t)> &task) {
     at::cuda::device_synchronize();
   }
 
-  return (system_clock::now() - begin) / count;
+  return (system_clock::now() - begin) / int64_t(count);
 }
 
-static std::array<std::string, 4> units{"ns", "us", "ms", "s"};
-
-inline std::string fmtDuration(std::chrono::duration<size_t, std::nano> dur) {
-  double fp = dur.count();
-  auto unitIdx = 0;
-  while (unitIdx < units.size() - 1 && fp > 1e3) {
-    fp /= 1e3;
-    unitIdx++;
-  }
-  std::stringstream ss;
-  ss << std::setprecision(4) << fp << units[unitIdx];
-  return ss.str();
-}
 }  // namespace jit
 }  // namespace torch

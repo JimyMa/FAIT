@@ -71,6 +71,9 @@ static void listConstruct(Stack &stack, const c10::Type &list_type,
 static void ifCond(Stack &stack, size_t num_inputs) {}
 
 static c10::optional<Stack> tryRunNodes(Node *node) {
+  // Skip if no outputs are produced
+  if (node->outputs().empty()) return c10::nullopt;
+
   // Do not run on mutating nodes
   if (isMutating(node)) return c10::nullopt;
 

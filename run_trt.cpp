@@ -110,11 +110,12 @@ int main(int argc, char const *argv[]) {
   }
   auto inputTypes = parseInputTypes(argv[2]);
   flattenForwardInputs(mod, inputTypes);
+  ConvertProfilingInstrumentation(mod.get_method("forward").graph());
   auto spec = getFlattenedSpec(inputTypes);
   auto dataset = loadPickle<c10::impl::GenericList>(argv[3]);
   auto numSamples = dataset.size();
   auto stack = getFlattenedSample(dataset, 0);
-  spec.torch_executed_ops = {"prim::ListConstruct"};
+  spec.torch_executed_ops = {"prim::ListConstruct", "prof::Begin", "prof::End"};
   spec.truncate_long_and_double = true;
   mod = compile(mod, std::move(spec));
   {
@@ -124,4 +125,5 @@ int main(int argc, char const *argv[]) {
     });
     print(std::cout, "torchtrt latency: ", fmtDuration(dur), '\n');
   }
+  printProfilingResults();
 }

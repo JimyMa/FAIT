@@ -42,6 +42,9 @@ target_link_libraries(long-tail ${LONG_TAIL_LINK_LIBS})
 add_executable(example ${PROJECT_SOURCE_DIR}/example.cpp)
 target_link_libraries(example long-tail)
 
+add_executable(run_ts ${PROJECT_SOURCE_DIR}/run_ts.cpp)
+target_link_libraries(run_ts long-tail)
+
 add_executable(test_lowering ${PROJECT_SOURCE_DIR}/testing/test_lowering.cpp)
 target_link_libraries(test_lowering long-tail)
 
