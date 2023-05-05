@@ -1,3 +1,4 @@
+#include <torch/csrc/jit/passes/freeze_module.h>
 #include <torch/csrc/jit/serialization/import.h>
 #include <torch/serialize.h>
 #include <torch_tensorrt/torch_tensorrt.h>
@@ -110,6 +111,7 @@ int main(int argc, char const *argv[]) {
   }
   auto inputTypes = parseInputTypes(argv[2]);
   flattenForwardInputs(mod, inputTypes);
+  freeze_module_inplace(&mod);
   ConvertProfilingInstrumentation(mod.get_method("forward").graph());
   auto spec = getFlattenedSpec(inputTypes);
   auto dataset = loadPickle<c10::impl::GenericList>(argv[3]);
@@ -118,6 +120,11 @@ int main(int argc, char const *argv[]) {
   spec.torch_executed_ops = {"prim::ListConstruct", "prof::Begin", "prof::End"};
   spec.truncate_long_and_double = true;
   mod = compile(mod, std::move(spec));
+  for (auto i : c10::irange(numSamples)) {
+    auto stack = getFlattenedSample(dataset, i % numSamples);
+    mod.forward(stack);
+  }
+  enableProfiling();
   {
     auto dur = evaluate([&](size_t i) {
       auto stack = getFlattenedSample(dataset, i % numSamples);

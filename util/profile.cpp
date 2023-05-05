@@ -72,12 +72,18 @@ void printProfilingResults() {
   print(std::cout, "\nProfiling results:\n");
   print(std::cout, std::setw(kLabelWidth), std::setiosflags(std::ios::left),
         "Label", std::resetiosflags(std::ios::left), std::setw(kTimeWidth),
-        "Mean", std::setw(kTimeWidth), "Min", std::setw(kTimeWidth), "Max",
-        '\n');
+        "Count", std::setw(kTimeWidth), "Mean", std::setw(kTimeWidth), "Min",
+        std::setw(kTimeWidth), "Max", '\n');
   for (auto &label : labels) {
     auto &record = records[label];
     print(std::cout, std::setw(kLabelWidth), std::setiosflags(std::ios::left),
-          label, std::resetiosflags(std::ios::left), std::setw(kTimeWidth),
+          label, std::resetiosflags(std::ios::left));
+    print(std::cout, std::setw(kTimeWidth), record.count);
+    if (record.count == 0) {
+      std::cout << '\n';
+      continue;
+    }
+    print(std::cout, std::setw(kTimeWidth),
           fmtDuration(record.total / record.count), std::setw(kTimeWidth),
           fmtDuration(record.min), std::setw(kTimeWidth),
           fmtDuration(record.max), '\n');
