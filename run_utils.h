@@ -54,10 +54,12 @@ static constexpr auto kRunDuration = 2s;
 
 inline auto evaluate(const std::function<void(size_t)> &task) {
   // Warm up
+  disableProfiling();
   for (auto i : c10::irange(kWarmupRuns)) task(i);
   at::cuda::device_synchronize();
 
   // Run for the expected period
+  enableProfiling();
   size_t count = 0;
   auto begin = system_clock::now();
   while (system_clock::now() - begin < kRunDuration) {

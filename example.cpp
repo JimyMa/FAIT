@@ -188,7 +188,6 @@ int main(int argc, const char *argv[]) {
   GraphFunction origin_function("original", origin_graph, nullptr);
 
   Stack stack;
-  disableProfiling();
   for (auto i : c10::irange(numSamples)) {
     stack = getFeatureSample(dataset, i);
     torch::jit::InterpreterState(code).run(stack);
@@ -204,7 +203,6 @@ int main(int argc, const char *argv[]) {
     }
   }
 
-  enableProfiling();
   {
     auto dur = evaluate([&](size_t i) {
       auto stack = getFeatureSample(dataset, i % numSamples);

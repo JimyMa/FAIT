@@ -65,28 +65,44 @@ std::string fmtDuration(nanoseconds dur) {
 }
 
 static constexpr auto kLabelWidth = 16;
-static constexpr auto kTimeWidth = 8;
+static constexpr auto kStatWidth = 10;
+
+static void printLabel(const std::string &label) {
+  print(std::cout, std::setw(kLabelWidth), std::setiosflags(std::ios::left),
+        label, std::resetiosflags(std::ios::left));
+}
+
+template <class T>
+static void printStat(T &&stat) {
+  print(std::cout, std::setw(kStatWidth), stat);
+}
 
 void printProfilingResults() {
   if (records.empty()) return;
-  print(std::cout, "\nProfiling results:\n");
-  print(std::cout, std::setw(kLabelWidth), std::setiosflags(std::ios::left),
-        "Label", std::resetiosflags(std::ios::left), std::setw(kTimeWidth),
-        "Count", std::setw(kTimeWidth), "Mean", std::setw(kTimeWidth), "Min",
-        std::setw(kTimeWidth), "Max", '\n');
+
+  // Items
+  std::cout << "\nProfiling results:\n";
+  printLabel("Label");
+  printStat("Count");
+  printStat("Total");
+  printStat("Mean");
+  printStat("Min");
+  printStat("Max");
+  std::cout << '\n';
+
   for (auto &label : labels) {
     auto &record = records[label];
-    print(std::cout, std::setw(kLabelWidth), std::setiosflags(std::ios::left),
-          label, std::resetiosflags(std::ios::left));
-    print(std::cout, std::setw(kTimeWidth), record.count);
+    printLabel(label);
+    printStat(record.count);  // count
     if (record.count == 0) {
       std::cout << '\n';
       continue;
     }
-    print(std::cout, std::setw(kTimeWidth),
-          fmtDuration(record.total / record.count), std::setw(kTimeWidth),
-          fmtDuration(record.min), std::setw(kTimeWidth),
-          fmtDuration(record.max), '\n');
+    printStat(fmtDuration(record.total));                 // total
+    printStat(fmtDuration(record.total / record.count));  // mean
+    printStat(fmtDuration(record.min));                   // min
+    printStat(fmtDuration(record.max));                   // max
+    std::cout << '\n';
   }
 }
 

@@ -33,13 +33,11 @@ int main(int argc, const char *argv[]) {
   GraphFunction function("original", graph, nullptr);
 
   Stack stack;
-  disableProfiling();
   for (auto i : c10::irange(numSamples)) {
     stack = getFeatureSample(dataset, i);
     function.run(stack);
   }
 
-  enableProfiling();
   {
     auto dur = evaluate([&](size_t i) {
       auto stack = getFeatureSample(dataset, i % numSamples);
