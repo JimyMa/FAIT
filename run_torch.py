@@ -31,13 +31,17 @@ def parse_args():
                         help='Model name.')
     parser.add_argument('-f', '--feature', type=str,
                         help='Pickle file of network output features.')
+    parser.add_argument('-c', '--compile', action='store_true',
+                        help='Compile the module with TorchDynamo and TorchInductor.')
     args = parser.parse_args()
 
 
 def main():
     torch._dynamo.config.suppress_errors = True
+
     mod = module_classes[args.model]().cuda().eval()
-    mod = torch.compile(mod, dynamic=True)
+    if args.compile:
+        mod = torch.compile(mod, dynamic=True)
     feats = torch.load(args.feature)
     num_samples = len(feats)
 
