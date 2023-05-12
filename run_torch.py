@@ -37,7 +37,9 @@ def parse_args():
 
 
 def main():
-    torch._dynamo.config.suppress_errors = True
+    if args.compile:
+        torch._dynamo.reset()
+        torch._dynamo.config.suppress_errors = True
 
     mod = module_classes[args.model]().cuda().eval()
     if args.compile:
