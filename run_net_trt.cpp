@@ -29,10 +29,10 @@ int main(int argc, char const *argv[]) {
   CompileSpec spec({Input(dataset.slice(0, 0, 1))});
   mod = compile(mod, std::move(spec));
   {
-    auto dur = evaluate([&](size_t i) {
+    auto result = evaluate([&](size_t i) {
       i %= numSamples;
       mod.forward({dataset.slice(0, i, i + 1)});
     });
-    print(std::cout, "torchtrt latency: ", fmtDuration(dur), '\n');
+    print(std::cout, "latency: ", fmtDuration(result.mean()), '\n');
   }
 }

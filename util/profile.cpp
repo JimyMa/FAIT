@@ -1,6 +1,8 @@
 #include "profile.h"
 
 #include <c10/cuda/CUDAFunctions.h>
+#include <cuda_profiler_api.h>
+#include <nvToolsExt.h>
 
 #include <chrono>
 
@@ -14,13 +16,21 @@ using namespace std::chrono;
 
 static bool enabled = false;
 
-void enableProfiling() { enabled = true; }
-void disableProfiling() { enabled = false; }
+void enableProfiling() {
+  cudaProfilerStart();
+  enabled = true;
+}
+
+void disableProfiling() {
+  cudaProfilerStop();
+  enabled = false;
+}
 
 struct TimeRecord {
   nanoseconds total{0}, min{INT64_MAX}, max{0};
   size_t count = 0;
   c10::optional<system_clock::time_point> begin = c10::nullopt;
+  nvtxRangeId_t range;
 };
 
 static std::vector<std::string> labels;
@@ -34,6 +44,7 @@ void profBegin(const std::string &label) {
     records.insert({label, {}});
   }
   records[label].begin = system_clock::now();
+  records[label].range = nvtxRangeStartA(label.c_str());
 }
 
 void profEnd(const std::string &label) {
@@ -42,6 +53,7 @@ void profEnd(const std::string &label) {
   auto &record = records.at(label);
   TORCH_CHECK(record.begin.has_value(),
               "`beginProfile` has not been called before.");
+  nvtxRangeEnd(record.range);
   auto dur = system_clock::now() - *record.begin;
   record.begin = c10::nullopt;
   record.count++;

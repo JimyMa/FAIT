@@ -9,8 +9,8 @@
 using namespace torch::jit;
 
 int main(int argc, const char *argv[]) {
-  if (argc < 3) {
-    std::cerr << "usage: example <script-module> <input-data>\n";
+  if (argc < 4) {
+    std::cerr << "usage: example <script-module> <input-types> <input-data>\n";
     return 1;
   }
   at::globalContext().lazyInitCUDA();
@@ -27,7 +27,7 @@ int main(int argc, const char *argv[]) {
 
   // Runtime
   c10::impl::GenericList dataset(AnyType::get());
-  dataset = loadPickle<c10::impl::GenericList>(argv[2]);
+  dataset = loadPickle<c10::impl::GenericList>(argv[3]);
   size_t numSamples = dataset.size();
 
   GraphFunction function("original", graph, nullptr);
@@ -39,11 +39,12 @@ int main(int argc, const char *argv[]) {
   }
 
   {
-    auto dur = evaluate([&](size_t i) {
+    auto result = evaluate([&](size_t i) {
       auto stack = getFeatureSample(dataset, i % numSamples);
       function.run(stack);
     });
-    print(std::cout, "ts latency: ", fmtDuration(dur), '\n');
+    print(std::cout, "latency: ", fmtDuration(result.mean()), '\n');
+    print(std::cout, "count: ", result.count, '\n');
   }
 
   printProfilingResults();

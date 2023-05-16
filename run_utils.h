@@ -49,12 +49,18 @@ inline Stack getFeatureSample(const c10::List<IValue> &dataset, size_t index) {
   return std::move(inputs);
 }
 
+struct EvalResult {
+  nanoseconds total;
+  size_t count = 0;
+
+  nanoseconds mean() const { return total / int64_t(count); }
+};
+
 static constexpr auto kWarmupRuns = 16;
 static constexpr auto kRunDuration = 2s;
 
-inline auto evaluate(const std::function<void(size_t)> &task) {
+inline EvalResult evaluate(const std::function<void(size_t)> &task) {
   // Warm up
-  disableProfiling();
   for (auto i : c10::irange(kWarmupRuns)) task(i);
   at::cuda::device_synchronize();
 
@@ -66,8 +72,9 @@ inline auto evaluate(const std::function<void(size_t)> &task) {
     task(count++);
     at::cuda::device_synchronize();
   }
+  disableProfiling();
 
-  return (system_clock::now() - begin) / int64_t(count);
+  return {system_clock::now() - begin, count};
 }
 
 }  // namespace jit

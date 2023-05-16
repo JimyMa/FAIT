@@ -4,7 +4,7 @@ set(CMAKE_CXX_STANDARD 14)
 project(long-tail)
 
 # Options
-option(ENABLE_TORCH_TRT "enable torch-trt" ON)
+option(ENABLE_TORCH_TRT "enable torch-trt" OFF)
 
 # Packages
 find_package(Torch REQUIRED)

@@ -198,17 +198,18 @@ int main(int argc, const char *argv[]) {
     try {
       checkOutputs(output_tss_parallel, output_origin);
     } catch (std::exception &err) {
-      std::cerr << "Inconsistency at sample " << i << '\n';
+      // std::cout << "Inconsistency at sample " << i << '\n';
       // std::cerr << err.what();
     }
   }
 
   {
-    auto dur = evaluate([&](size_t i) {
+    auto result = evaluate([&](size_t i) {
       auto stack = getFeatureSample(dataset, i % numSamples);
       torch::jit::InterpreterState(code).run(stack);
     });
-    print(std::cout, "long tail latency: ", fmtDuration(dur), '\n');
+    print(std::cout, "latency: ", fmtDuration(result.mean()), '\n');
+    print(std::cout, "count: ", result.count, '\n');
   }
 
   printProfilingResults();

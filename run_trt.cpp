@@ -129,11 +129,12 @@ int main(int argc, char const *argv[]) {
   }
 
   {
-    auto dur = evaluate([&](size_t i) {
+    auto result = evaluate([&](size_t i) {
       auto stack = getFlattenedSample(dataset, i % numSamples);
       mod.forward(stack);
     });
-    print(std::cout, "torchtrt latency: ", fmtDuration(dur), '\n');
+    print(std::cout, "latency: ", fmtDuration(result.mean()), '\n');
+    print(std::cout, "count: ", result.count, '\n');
   }
 
   printProfilingResults();
