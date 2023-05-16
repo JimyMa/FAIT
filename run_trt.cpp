@@ -133,9 +133,8 @@ int main(int argc, char const *argv[]) {
       auto stack = getFlattenedSample(dataset, i % numSamples);
       mod.forward(stack);
     });
-    print(std::cout, "latency: ", fmtDuration(result.mean()), '\n');
-    print(std::cout, "count: ", result.count, '\n');
+    print(std::cout, "Latency: ", fmtDuration(result.mean()), '\n');
+    print(std::cout, "Count: ", result.count, '\n');
+    printProfilingResults(result.count);
   }
-
-  printProfilingResults();
 }

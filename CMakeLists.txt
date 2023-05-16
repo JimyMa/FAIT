@@ -3,6 +3,8 @@ set(CMAKE_CXX_STANDARD 14)
 
 project(long-tail)
 
+cmake_policy(SET CMP0074 NEW)
+
 # Options
 option(ENABLE_TORCH_TRT "enable torch-trt" OFF)
 
@@ -12,6 +14,7 @@ find_package(TorchVision REQUIRED)
 if(ENABLE_TORCH_TRT)
   find_package(torchtrt REQUIRED)
 endif(ENABLE_TORCH_TRT)
+find_package(CUDAToolkit REQUIRED)
 
 set(CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS})
 
@@ -30,7 +33,8 @@ file(GLOB SOURCES
 set(LONG_TAIL_LINK_LIBS 
   ${TORCH_LIBRARIES}
   TorchVision::TorchVision
-  nlohmann_json::nlohmann_json)
+  nlohmann_json::nlohmann_json
+  CUDA::cupti)
 
 if(ENABLE_TORCH_TRT)
   set(LONG_TAIL_LINK_LIBS ${LONG_TAIL_LINK_LIBS} torchtrt)

@@ -33,6 +33,6 @@ int main(int argc, char const *argv[]) {
       i %= numSamples;
       mod.forward({dataset.slice(0, i, i + 1)});
     });
-    print(std::cout, "latency: ", fmtDuration(result.mean()), '\n');
+    print(std::cout, "Latency: ", fmtDuration(result.mean()), '\n');
   }
 }

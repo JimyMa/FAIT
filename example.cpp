@@ -208,9 +208,8 @@ int main(int argc, const char *argv[]) {
       auto stack = getFeatureSample(dataset, i % numSamples);
       torch::jit::InterpreterState(code).run(stack);
     });
-    print(std::cout, "latency: ", fmtDuration(result.mean()), '\n');
-    print(std::cout, "count: ", result.count, '\n');
+    print(std::cout, "Latency: ", fmtDuration(result.mean()), '\n');
+    print(std::cout, "Count: ", result.count, '\n');
+    printProfilingResults(result.count);
   }
-
-  printProfilingResults();
 }

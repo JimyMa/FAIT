@@ -23,7 +23,7 @@ void disableProfiling();
 void profBegin(const std::string &label);
 void profEnd(const std::string &label);
 
-void printProfilingResults();
+void printProfilingResults(size_t count);
 
 std::string fmtDuration(std::chrono::nanoseconds dur);
 
