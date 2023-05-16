@@ -6,8 +6,9 @@ from typing import Dict
 import torch
 import torch._dynamo
 
-from prof import ProfileRewriter, print_profiling_results, prof_begin, prof_end
-from run_utils import evaluate, fmt_duration, to_cuda
+from prof import (ProfileRewriter, fmt_duration, print_profiling_results,
+                  prof_begin, prof_end)
+from run_utils import evaluate, to_cuda
 
 args = Namespace()
 
@@ -26,15 +27,17 @@ def parse_args():
                         help='Python module name under `models`.')
     parser.add_argument('-f', '--feature', type=str,
                         help='Pickle file of network output features.')
-    parser.add_argument('-c', '--compile', action='store_true',
-                        help='Compile the module with TorchDynamo and TorchInductor.')
+    parser.add_argument('-c', '--compile', type=str,
+                        help='Compile the module with specific backend.')
     args = parser.parse_args()
 
 
 if __name__ == '__main__':
     parse_args()
 
-    torch._dynamo.config.suppress_errors = True
+    if args.compile:
+        torch._dynamo.reset()
+        torch._dynamo.config.suppress_errors = True
 
     mod_name = module_cls_names[args.module]
     feats = torch.load(args.feature)
@@ -47,11 +50,16 @@ if __name__ == '__main__':
     exec(code)
     mod = eval(mod_name)().eval().cuda()
     if args.compile:
-        mod = torch.compile(mod, dynamic=True)
+        mod = torch.compile(mod, backend=args.compile, dynamic=True)
 
     def task(idx: int):
         mod(*to_cuda(feats[idx % num_samples]))
 
-    print(f'torch latency: {fmt_duration(evaluate(task))}')
+    for i in range(num_samples):
+        task(i)
+
+    result = evaluate(task)
+    print(f'latency: {fmt_duration(result.mean())}')
+    print(f'count: {result.count}')
 
     print_profiling_results()

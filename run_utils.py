@@ -1,9 +1,10 @@
 from time import perf_counter
 from typing import Callable
+from dataclasses import dataclass
 
 import torch
 
-from prof import fmt_duration, enable_profiling, disable_profiling
+from prof import enable_profiling, disable_profiling
 
 
 def to_cuda(val):
@@ -21,8 +22,16 @@ warmup_runs = 16
 run_duration = 2.
 
 
+@dataclass
+class EvalRecord:
+    total: float
+    count: int
+
+    def mean(self):
+        return self.total / self.count
+
+
 def evaluate(task: Callable[[int], None]):
-    disable_profiling()
     for i in range(warmup_runs):
         task(i)
 
@@ -34,5 +43,6 @@ def evaluate(task: Callable[[int], None]):
         task(count)
         torch.cuda.synchronize()
         count += 1
+    disable_profiling()
 
-    return (perf_counter() - begin) / count
+    return EvalRecord(total=perf_counter() - begin, count=count)

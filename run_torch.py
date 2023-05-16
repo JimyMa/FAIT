@@ -9,7 +9,12 @@ from models.solov2_mask import SOLOV2Mask
 from models.ssd_bbox import SSDBBox
 from models.yolact_mask import YolactBBoxMask
 from models.yolov3_bbox import YOLOV3BBox
-from run_utils import evaluate, fmt_duration, to_cuda
+from prof import fmt_duration
+from run_utils import evaluate, to_cuda
+try:
+    import torch_blade
+except ImportError:
+    pass
 
 args = Namespace()
 
@@ -31,8 +36,8 @@ def parse_args():
                         help='Model name.')
     parser.add_argument('-f', '--feature', type=str,
                         help='Pickle file of network output features.')
-    parser.add_argument('-c', '--compile', action='store_true',
-                        help='Compile the module with TorchDynamo and TorchInductor.')
+    parser.add_argument('-c', '--compile', type=str,
+                        help='Compile the module with specific backend.')
     args = parser.parse_args()
 
 
@@ -43,14 +48,19 @@ def main():
 
     mod = module_classes[args.model]().cuda().eval()
     if args.compile:
-        mod = torch.compile(mod, dynamic=True)
+        mod = torch.compile(mod, backend=args.compile, dynamic=True)
     feats = torch.load(args.feature)
     num_samples = len(feats)
 
     def task(idx: int):
         mod(*to_cuda(feats[idx % num_samples]))
 
-    print(f'torch latency: {fmt_duration(evaluate(task))}')
+    for i in range(num_samples):
+        task(i)
+
+    result = evaluate(task)
+    print(f'latency: {fmt_duration(result.mean())}')
+    print(f'count: {result.count}')
 
 
 if __name__ == '__main__':

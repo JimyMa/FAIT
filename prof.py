@@ -1,8 +1,10 @@
 import ast
-from typing import List, Dict, Optional
 from dataclasses import dataclass
-import torch
 from time import perf_counter
+from typing import Dict, Optional
+from cuda import cudart
+
+import torch
 
 _enabled = False
 
@@ -10,11 +12,13 @@ _enabled = False
 def enable_profiling():
     global _enabled
     _enabled = True
+    cudart.cudaProfilerStart()
 
 
 def disable_profiling():
     global _enabled
     _enabled = False
+    cudart.cudaProfilerStop()
 
 
 @dataclass
