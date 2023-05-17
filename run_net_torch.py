@@ -48,7 +48,7 @@ def main():
         idx %= num_samples
         mod(dataset[idx:idx+1])
 
-    print(f'torch latency: {fmt_duration(evaluate(task))}')
+    print(f'Latency: {fmt_duration(evaluate(task))}')
 
 
 if __name__ == '__main__':

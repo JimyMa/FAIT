@@ -1,6 +1,6 @@
 #include "traits.h"
 
-#include "profile.h"
+#include "passes/profile_ops.h"
 
 namespace torch {
 namespace jit {

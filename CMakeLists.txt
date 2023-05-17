@@ -43,6 +43,9 @@ endif(ENABLE_TORCH_TRT)
 add_library(long-tail ${SOURCES})
 target_link_libraries(long-tail ${LONG_TAIL_LINK_LIBS})
 
+add_library(ltprof SHARED ${PROJECT_SOURCE_DIR}/util/profile.cpp)
+target_link_libraries(ltprof ${TORCH_LIBRARIES} CUDA::cupti)
+
 add_executable(example ${PROJECT_SOURCE_DIR}/example.cpp)
 target_link_libraries(example long-tail)
 

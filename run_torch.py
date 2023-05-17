@@ -59,8 +59,8 @@ def main():
         task(i)
 
     result = evaluate(task)
-    print(f'latency: {fmt_duration(result.mean())}')
-    print(f'count: {result.count}')
+    print(f'Latency: {fmt_duration(result.mean())}')
+    print(f'Count: {result.count}')
 
 
 if __name__ == '__main__':

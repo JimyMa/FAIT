@@ -2,23 +2,25 @@ import ast
 from dataclasses import dataclass
 from time import perf_counter
 from typing import Dict, Optional
-from cuda import cudart
 
 import torch
+import ctypes
+
+_lib = ctypes.cdll.LoadLibrary('build/libltprof.so')
 
 _enabled = False
 
 
 def enable_profiling():
     global _enabled
+    _lib.enableProfiling()
     _enabled = True
-    cudart.cudaProfilerStart()
 
 
 def disable_profiling():
     global _enabled
+    _lib.enableProfiling()
     _enabled = False
-    cudart.cudaProfilerStop()
 
 
 @dataclass
@@ -68,8 +70,9 @@ def fmt_duration(dur: float):
 _record_fmt = '{:<16}{:>10}{:>10}{:>10}{:>10}{:>10}'
 
 
-def print_profiling_results():
-    print('\nProfiling results:')
+def print_profiling_results(count: int):
+    _lib.printProfilingResults(ctypes.c_size_t(count))
+    print('\nRanges:')
     print(_record_fmt.format(
         'Label', 'Count', 'Total', 'Mean', 'Min', 'Max'))
     for label, record in _records.items():

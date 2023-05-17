@@ -6,8 +6,8 @@
 #include <chrono>
 #include <iomanip>
 
+#include "passes/profile_ops.h"
 #include "util/common.h"
-#include "util/profile.h"
 
 namespace torch {
 namespace jit {
