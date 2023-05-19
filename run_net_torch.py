@@ -8,7 +8,8 @@ from models.solov2_net import SOLOV2
 from models.ssd_net import SSD
 from models.yolact_net import Yolact
 from models.yolov3_net import YOLOV3
-from run_utils import evaluate, fmt_duration
+from prof import fmt_duration
+from run_utils import evaluate
 
 args = Namespace()
 
@@ -48,7 +49,7 @@ def main():
         idx %= num_samples
         mod(dataset[idx:idx+1])
 
-    print(f'Latency: {fmt_duration(evaluate(task))}')
+    print(f'Latency: {fmt_duration(evaluate(task).mean())}')
 
 
 if __name__ == '__main__':
