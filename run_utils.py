@@ -19,7 +19,7 @@ def to_cuda(val):
 
 
 warmup_runs = 16
-run_duration = 2.
+run_duration = 10.
 
 
 @dataclass

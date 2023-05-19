@@ -57,7 +57,7 @@ struct EvalResult {
 };
 
 static constexpr auto kWarmupRuns = 16;
-static constexpr auto kRunDuration = 2s;
+static constexpr auto kRunDuration = 10s;
 
 inline EvalResult evaluate(const std::function<void(size_t)> &task) {
   // Warm up
