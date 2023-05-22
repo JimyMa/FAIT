@@ -44,7 +44,6 @@ int main(int argc, const char *argv[]) {
       function.run(stack);
     });
     print(std::cout, "Latency: ", fmtDuration(result.mean()), '\n');
-    print(std::cout, "Count: ", result.count, '\n');
     printProfilingResults(result.count);
   }
 }

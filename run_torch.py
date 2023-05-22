@@ -60,7 +60,6 @@ def main():
 
     result = evaluate(task)
     print(f'Latency: {fmt_duration(result.mean())}')
-    print(f'Count: {result.count}')
 
 
 if __name__ == '__main__':

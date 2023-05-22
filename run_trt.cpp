@@ -134,7 +134,6 @@ int main(int argc, char const *argv[]) {
       mod.forward(stack);
     });
     print(std::cout, "Latency: ", fmtDuration(result.mean()), '\n');
-    print(std::cout, "Count: ", result.count, '\n');
     printProfilingResults(result.count);
   }
 }

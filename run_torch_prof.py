@@ -60,6 +60,5 @@ if __name__ == '__main__':
 
     result = evaluate(task)
     print(f'Latency: {fmt_duration(result.mean())}')
-    print(f'Count: {result.count}')
 
     print_profiling_results(result.count)
