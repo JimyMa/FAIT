@@ -27,6 +27,7 @@ int main(int argc, char const *argv[]) {
   auto dataset = loadPickle<at::Tensor>(argv[2]).cuda();
   auto numSamples = size_t(dataset.size(0));
   CompileSpec spec({Input(dataset.slice(0, 0, 1))});
+  spec.enabled_precisions = {c10::kFloat, c10::kHalf};
   mod = compile(mod, std::move(spec));
   {
     auto result = evaluate([&](size_t i) {
