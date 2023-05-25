@@ -23,6 +23,7 @@ using namespace torch::jit;
 
 static void dumpGraphToFile(const std::shared_ptr<Graph> &graph,
                             const std::string &path) {
+  if (!getenv("DUMP_GRAPH")) return;
   std::ofstream ofs(path);
   graph->print(ofs);
 }
