@@ -8,6 +8,7 @@
 #include "passes/common_passes.h"
 #include "passes/freeze_module.h"
 #include "passes/fuse_ops.h"
+#include "passes/op_stat.h"
 #include "passes/parallelize_loops.h"
 #include "passes/refine_types.h"
 #include "passes/te_op.h"
@@ -144,9 +145,11 @@ int main(int argc, const char *argv[]) {
   try {
     RefineInputTypes(graph, inputTypes, refinedTypes);
     CanonicalizeOps(graph);
+    if (getenv("PRINT_GRAPH_STAT")) CountMemoryIntensiveOps(graph);
     ToTensorSSA(graph);
     dumpGraphToFile(graph, "after_tssa.rb");
     ParallelizeLoops(graph);
+    if (getenv("PRINT_GRAPH_STAT")) CountLoops(graph);
     InferDtypeAndDevice(graph, refinedTypes);
     InferShape(graph, refinedTypes);
     dumpGraphToFile(graph, "after_par.rb");
