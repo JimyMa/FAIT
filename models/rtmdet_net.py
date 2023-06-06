@@ -3,7 +3,6 @@ from typing import Tuple
 import torch
 from torch import nn
 from torch import Tensor
-import torchvision
 
 from mmcv.cnn import ConvModule, is_norm
 
@@ -15,35 +14,16 @@ from mmdet.models.backbones import CSPNeXt
 from mmdet.models.necks import CSPNeXtPAFPN
 from mmdet.models.dense_heads import RTMDetHead
 from mmdet.models.utils import sigmoid_geometric_mean
-from mmdet.utils.typing import ConfigType
-
-
-checkpoint = 'https://download.openmmlab.com/mmdetection/v3.0/rtmdet/cspnext_rsb_pretrain/cspnext-tiny_imagenet_600e.pth'
 
 
 class RTMDetSepBNHead(RTMDetHead):
-    """RTMDetHead with separated BN layers and shared conv layers.
-
-    Args:
-        num_classes (int): Number of categories excluding the background
-            category.
-        in_channels (int): Number of channels in the input feature map.
-        share_conv (bool): Whether to share conv layers between stages.
-            Defaults to True.
-        norm_cfg (:obj:`ConfigDict` or dict)): Config dict for normalization
-            layer. Defaults to dict(type='BN', momentum=0.03, eps=0.001).
-        act_cfg (:obj:`ConfigDict` or dict)): Config dict for activation layer.
-            Defaults to dict(type='SiLU').
-        pred_kernel_size (int): Kernel size of prediction layer. Defaults to 1.
-    """
-
     def __init__(self,
                  num_classes: int,
                  in_channels: int,
                  share_conv: bool = True,
-                 norm_cfg: ConfigType = dict(
+                 norm_cfg = dict(
                      type='BN', momentum=0.03, eps=0.001),
-                 act_cfg: ConfigType = dict(type='SiLU'),
+                 act_cfg = dict(type='SiLU'),
                  pred_kernel_size: int = 1,
                  exp_on_reg=False,
                  **kwargs) -> None:
@@ -58,7 +38,6 @@ class RTMDetSepBNHead(RTMDetHead):
             **kwargs)
 
     def _init_layers(self) -> None:
-        """Initialize layers of the head."""
         self.cls_convs = nn.ModuleList()
         self.reg_convs = nn.ModuleList()
 
@@ -121,7 +100,6 @@ class RTMDetSepBNHead(RTMDetHead):
                     self.reg_convs[n][i].conv = self.reg_convs[0][i].conv
 
     def init_weights(self) -> None:
-        """Initialize weights of the head."""
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 normal_init(m, mean=0, std=0.01)
@@ -136,23 +114,6 @@ class RTMDetSepBNHead(RTMDetHead):
                 normal_init(rtm_obj, std=0.01, bias=bias_cls)
 
     def forward(self, feats: Tuple[Tensor, ...]) -> tuple:
-        """Forward features from the upstream network.
-
-        Args:
-            feats (tuple[Tensor]): Features from the upstream network, each is
-                a 4D-tensor.
-
-        Returns:
-            tuple: Usually a tuple of classification scores and bbox prediction
-
-            - cls_scores (tuple[Tensor]): Classification scores for all scale
-              levels, each is a 4D-tensor, the channels number is
-              num_anchors * num_classes.
-            - bbox_preds (tuple[Tensor]): Box energies / deltas for all scale
-              levels, each is a 4D-tensor, the channels number is
-              num_anchors * 4.
-        """
-
         cls_scores = []
         bbox_preds = []
         for idx, (x, stride) in enumerate(
@@ -177,7 +138,7 @@ class RTMDetSepBNHead(RTMDetHead):
                 reg_dist = self.rtm_reg[idx](reg_feat) * torch.tensor((stride[0]), device="cuda")
             cls_scores.append(cls_score)
             bbox_preds.append(reg_dist)
-        return tuple(cls_scores), tuple(bbox_preds)
+        return cls_scores, bbox_preds
 
 
 
@@ -194,7 +155,7 @@ class RTMDetNet(torch.nn.Module):
             norm_cfg=dict(type='SyncBN'),
             act_cfg=dict(type='SiLU'),
             init_cfg=dict(
-                type='Pretrained', prefix='backbone.', checkpoint=checkpoint)
+                type='Pretrained', prefix='backbone.')
         )
 
         self.neck = CSPNeXtPAFPN(
@@ -237,7 +198,6 @@ class RTMDetNet(torch.nn.Module):
 
 if __name__ == '__main__':
     net = RTMDetNet()
-
     net._load_from_state_dict(torch.load(RTMDetNet.ckpt_file)["state_dict"],
                               "backbone",
                               {},
@@ -245,23 +205,11 @@ if __name__ == '__main__':
                               {},
                               [],
                               [])
-
     net = net.cuda().eval()
-
-    net = torch.jit.trace(net, [torch.empty(
-        1, 3, 320, 320).float().cuda()])
-
-    # data = torch.load("data/coco128.pt").cuda()
-    # feat_result = []
-    # for i in range(data.size(0)):
-    #     rtmdet_feat = net(data[i:i+1])
-    # feat_result.append(rtmdet_feat)
-
-    # torch.save(feat_result, "rtmdet_feat.pt")
-
+    net = torch.jit.trace(net, torch.empty(
+        1, 3, 320, 320).float().cuda())
     net = torch.jit.freeze(net)
-
-    torch.jit.save(net, 'rtmdet.pt')
+    torch.jit.save(net, 'rtmdet_net.pt')
     print(net.graph)
 
 

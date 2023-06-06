@@ -19,48 +19,41 @@ class MlvlPointGenerator(torch.nn.Module):
     def num_levels(self):
         return len(self.strides)
 
-    def _meshgrid(self, x, y):
-        yy, xx = torch.meshgrid(y, x)
-        return xx.reshape(-1), yy.reshape(-1)
-
     def single_level_grid_priors(self,
-                                 featmap_size: tuple[int, int],
+                                 featmap_size: Tuple[int, int],
                                  level_idx: int,
                                  dtype: torch.dtype =torch.float32,
-                                 device: torch.device ='cuda',
-                                 with_stride: bool=False):
+                                 device: torch.device ='cuda'):
         feat_h, feat_w = featmap_size
         stride_w, stride_h = self.strides[level_idx]
         shift_x = (torch.arange(0, feat_w, device=device) +
                    self.offset) * stride_w
-        # keep featmap_size as Tensor instead of int, so that we
-        # can convert to ONNX correctly
         shift_x = shift_x.to(dtype)
-
         shift_y = (torch.arange(0, feat_h, device=device) +
                    self.offset) * stride_h
-        # keep featmap_size as Tensor instead of int, so that we
-        # can convert to ONNX correctly
         shift_y = shift_y.to(dtype)
         shift_xx, shift_yy = self._meshgrid(shift_x, shift_y)
         shifts = torch.stack([shift_xx, shift_yy], dim=-1)
         return shifts
 
     def grid_priors(self,
-                    featmap_sizes: List[tuple[int, int]],
+                    featmap_sizes: List[Tuple[int, int]],
                     dtype: torch.dtype=torch.float32,
-                    device: torch.device='cuda',
-                    with_stride: bool=False):
+                    device: torch.device='cuda'):
         multi_level_priors = []
         for i in range(self.num_levels):
             priors = self.single_level_grid_priors(
                 featmap_sizes[i],
                 level_idx=i,
                 dtype=dtype,
-                device=device,
-                with_stride=with_stride)
+                device=device)
             multi_level_priors.append(priors)
         return multi_level_priors
+    
+    def _meshgrid(self, x: Tensor, y: Tensor) -> Tuple[Tensor, Tensor]:
+        xx = x.repeat(y.size(0))
+        yy = y.view(-1, 1).repeat(1, x.size(0)).view(-1)
+        return xx, yy
 
 
 def select_single_mlvl(mlvl_tensors: List[Tensor], batch_id: int):
@@ -216,5 +209,3 @@ if __name__ == '__main__':
     bbox = torch.jit.script(bbox)
     print(bbox.graph)
     torch.jit.save(bbox, 'rtmdet_bbox.pt')
-
-

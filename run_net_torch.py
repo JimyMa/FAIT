@@ -46,9 +46,6 @@ def main():
         torch._dynamo.config.suppress_errors = True
 
     mod = module_classes[args.model]().cuda().eval()
-    params = torch.load(mod.ckpt_file)
-    if 'state_dict' in params.keys():
-        params = params['state_dict']
     dataset = torch.load(args.dataset).cuda()
     num_samples = len(dataset)
     if args.trace:
