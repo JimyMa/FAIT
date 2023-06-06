@@ -9,6 +9,7 @@ from models.solov2_net import SOLOV2
 from models.ssd_net import SSD
 from models.yolact_net import Yolact
 from models.yolov3_net import YOLOV3
+from models.rtmdet_net import RTMDetNet
 from prof import fmt_duration
 from run_utils import evaluate
 
@@ -20,6 +21,7 @@ module_classes: Dict[str, Type[torch.nn.Module]] = {
     'fcos': FCOS,
     'yolact': Yolact,
     'solov2': SOLOV2,
+    'rtmdet': RTMDetNet
 }
 
 
