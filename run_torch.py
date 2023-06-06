@@ -9,6 +9,7 @@ from models.solov2_mask import SOLOV2Mask
 from models.ssd_bbox import SSDBBox
 from models.yolact_mask import YolactBBoxMask
 from models.yolov3_bbox import YOLOV3BBox
+from models.rtmdet_bbox import RTMDetBBox
 from prof import fmt_duration
 from run_utils import evaluate, to_cuda
 try:
@@ -23,6 +24,7 @@ module_classes: Dict[str, Type[torch.nn.Module]] = {
     'yolov3': YOLOV3BBox,
     'ssd': SSDBBox,
     'fcos': FCOSBBox,
+    'rtmdet': RTMDetBBox,
     'yolact': YolactBBoxMask,
     'solov2': SOLOV2Mask,
 }

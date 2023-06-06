@@ -182,7 +182,7 @@ class RTMDetSepBNHead(RTMDetHead):
 
 
 class RTMDetNet(torch.nn.Module):
-    ckpt_file = 'cspnext-tiny_imagenet_600e.pth'
+    ckpt_file = 'models/cspnext-tiny_imagenet_600e.pth'
     def __init__(self):
         super().__init__()
         self.backbone = CSPNeXt(
@@ -235,22 +235,8 @@ class RTMDetNet(torch.nn.Module):
         return pred_map
 
 
-def peel(data):
-    print(type(data))
-    if isinstance(data, torch.Tensor):
-        print(data.shape, data.dtype)
-    elif isinstance(data, tuple):
-        for data_t in data:
-            peel(data_t)
-    elif isinstance(data, str):
-        print(data)
-    else:
-        return
-
-
 if __name__ == '__main__':
-    net = RTMDetNet().cuda()
-    net.eval()
+    net = RTMDetNet()
 
     net._load_from_state_dict(torch.load(RTMDetNet.ckpt_file)["state_dict"],
                               "backbone",
@@ -260,10 +246,21 @@ if __name__ == '__main__':
                               [],
                               [])
 
+    net = net.cuda().eval()
+
     net = torch.jit.trace(net, [torch.empty(
-        1, 3, 640, 640).float().cuda()])
+        1, 3, 320, 320).float().cuda()])
+
+    # data = torch.load("data/coco128.pt").cuda()
+    # feat_result = []
+    # for i in range(data.size(0)):
+    #     rtmdet_feat = net(data[i:i+1])
+    # feat_result.append(rtmdet_feat)
+
+    # torch.save(feat_result, "rtmdet_feat.pt")
 
     net = torch.jit.freeze(net)
+
     torch.jit.save(net, 'rtmdet.pt')
     print(net.graph)
 
