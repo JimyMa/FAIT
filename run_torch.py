@@ -10,7 +10,7 @@ from models.ssd_bbox import SSDBBox
 from models.yolact_mask import YolactBBoxMask
 from models.yolov3_bbox import YOLOV3BBox
 from models.rtmdet_bbox import RTMDetBBox
-from prof import fmt_duration
+from prof import fmt_duration, print_profiling_results
 from run_utils import evaluate, to_cuda
 try:
     import torch_blade
@@ -62,6 +62,7 @@ def main():
 
     result = evaluate(task)
     print(f'Latency: {fmt_duration(result.mean())}')
+    print_profiling_results(result.count)
 
 
 if __name__ == '__main__':

@@ -72,6 +72,8 @@ _record_fmt = '{:<16}{:>10}{:>10}{:>10}{:>10}{:>10}'
 
 def print_profiling_results(count: int):
     _lib.printProfilingResults(ctypes.c_size_t(count))
+    if len(_records) == 0:
+        return
     print('\nRanges:')
     print(_record_fmt.format(
         'Label', 'Count', 'Total', 'Mean', 'Min', 'Max'))
