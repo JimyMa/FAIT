@@ -8,6 +8,7 @@
 
 #include "passes/profile_ops.h"
 #include "util/common.h"
+#include "util/metrics.h"
 
 namespace torch {
 namespace jit {
@@ -58,6 +59,29 @@ struct EvalResult {
 
 static constexpr auto kWarmupRuns = 16;
 static constexpr auto kRunDuration = 10s;
+
+inline void evalMetrics(const std::function<void(size_t)> &task,
+                        size_t numSamples) {
+  // Initialize
+  initializeMetrics();
+
+  // Warm up
+  for (auto i : c10::irange(kWarmupRuns)) task(i);
+  at::cuda::device_synchronize();
+
+  // Run and replay
+  do {
+    beginProfilerPass();
+    for (auto i : c10::irange(numSamples)) {
+      task(i);
+      at::cuda::device_synchronize();
+    }
+    endProfilerPass();
+  } while (!allPassesSubmitted());
+
+  // Print final results
+  finalizeMetrics();
+}
 
 inline EvalResult evaluate(const std::function<void(size_t)> &task) {
   // Warm up

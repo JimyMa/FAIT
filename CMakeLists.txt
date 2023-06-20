@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.0 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.10 FATAL_ERROR)
 set(CMAKE_CXX_STANDARD 14)
 
 project(long-tail)
@@ -11,10 +11,10 @@ option(ENABLE_TORCH_TRT "enable torch-trt" OFF)
 # Packages
 find_package(Torch REQUIRED)
 find_package(TorchVision REQUIRED)
+find_package(CUDAToolkit REQUIRED)
 if(ENABLE_TORCH_TRT)
   find_package(torchtrt REQUIRED)
 endif(ENABLE_TORCH_TRT)
-find_package(CUDAToolkit REQUIRED)
 
 set(CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS})
 
@@ -34,17 +34,24 @@ set(LONG_TAIL_LINK_LIBS
   ${TORCH_LIBRARIES}
   TorchVision::TorchVision
   nlohmann_json::nlohmann_json
-  CUDA::cupti)
+)
 
 if(ENABLE_TORCH_TRT)
   set(LONG_TAIL_LINK_LIBS ${LONG_TAIL_LINK_LIBS} torchtrt)
 endif(ENABLE_TORCH_TRT)
 
-add_library(long-tail ${SOURCES})
-target_link_libraries(long-tail ${LONG_TAIL_LINK_LIBS})
+file(GLOB CUPTI_EXT_SOURCES
+  ${PROJECT_SOURCE_DIR}/util/cupti_ext/*.cpp
+)
 
-add_library(ltprof SHARED ${PROJECT_SOURCE_DIR}/util/profile.cpp)
-target_link_libraries(ltprof ${TORCH_LIBRARIES} CUDA::cupti)
+add_library(cupti_ext ${CUPTI_EXT_SOURCES})
+target_link_libraries(cupti_ext CUDA::cupti CUDA::nvperf_host CUDA::nvperf_target)
+
+add_library(long-tail ${SOURCES})
+target_link_libraries(long-tail ${LONG_TAIL_LINK_LIBS} cupti_ext)
+
+add_library(ltprof SHARED ${PROJECT_SOURCE_DIR}/util/profile.cpp ${PROJECT_SOURCE_DIR}/util/metrics.cpp ${CUPTI_EXT_SOURCES})
+target_link_libraries(ltprof ${TORCH_LIBRARIES} cupti_ext)
 
 add_executable(example ${PROJECT_SOURCE_DIR}/example.cpp)
 target_link_libraries(example long-tail)

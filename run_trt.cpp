@@ -128,11 +128,14 @@ int main(int argc, char const *argv[]) {
     mod.forward(stack);
   }
 
-  {
-    auto result = evaluate([&](size_t i) {
-      auto stack = getFlattenedSample(dataset, i % numSamples);
-      mod.forward(stack);
-    });
+  auto task = [&](size_t i) {
+    auto stack = getFlattenedSample(dataset, i % numSamples);
+    mod.forward(stack);
+  };
+  if (metricsEnabled()) {
+    evalMetrics(task, numSamples);
+  } else {
+    auto result = evaluate(task);
     print(std::cout, "Latency: ", fmtDuration(result.mean()), '\n');
     printProfilingResults(result.count);
   }

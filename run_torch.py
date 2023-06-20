@@ -10,8 +10,8 @@ from models.ssd_bbox import SSDBBox
 from models.yolact_mask import YolactBBoxMask
 from models.yolov3_bbox import YOLOV3BBox
 from models.rtmdet_bbox import RTMDetBBox
-from prof import fmt_duration, print_profiling_results
-from run_utils import evaluate, to_cuda
+from prof import fmt_duration, print_profiling_results, metrics_enabled
+from run_utils import evaluate, eval_metrics, to_cuda
 try:
     import torch_blade
 except ImportError:
@@ -60,9 +60,12 @@ def main():
     for i in range(num_samples):
         task(i)
 
-    result = evaluate(task)
-    print(f'Latency: {fmt_duration(result.mean())}')
-    print_profiling_results(result.count)
+    if metrics_enabled():
+        eval_metrics(task, num_samples)
+    else:
+        result = evaluate(task)
+        print(f'Latency: {fmt_duration(result.mean())}')
+        print_profiling_results(result.count)
 
 
 if __name__ == '__main__':

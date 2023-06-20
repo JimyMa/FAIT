@@ -1,10 +1,12 @@
+from dataclasses import dataclass
 from time import perf_counter
 from typing import Callable
-from dataclasses import dataclass
 
 import torch
 
-from prof import enable_profiling, disable_profiling
+from prof import (all_passes_submitted, begin_profiler_pass, disable_profiling,
+                  enable_profiling, end_profiler_pass, finalize_metrics,
+                  initialize_metrics)
 
 
 def to_cuda(val):
@@ -46,3 +48,25 @@ def evaluate(task: Callable[[int], None]):
     disable_profiling()
 
     return EvalRecord(total=perf_counter() - begin, count=count)
+
+
+def eval_metrics(task: Callable[[int], None], num_samples: int):
+    initialize_metrics()
+
+    for i in range(warmup_runs):
+        task(i)
+    torch.cuda.synchronize()
+
+    count = 0
+    while True:
+        begin_profiler_pass()
+        for i in range(num_samples):
+            task(i)
+            torch.cuda.synchronize()
+        end_profiler_pass()
+        if count > 0 and all_passes_submitted():
+            break
+        count += 1
+
+    finalize_metrics()
+    

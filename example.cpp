@@ -207,11 +207,14 @@ int main(int argc, const char *argv[]) {
     }
   }
 
-  {
-    auto result = evaluate([&](size_t i) {
-      auto stack = getFeatureSample(dataset, i % numSamples);
-      torch::jit::InterpreterState(code).run(stack);
-    });
+  auto task = [&](size_t i) {
+    auto stack = getFeatureSample(dataset, i % numSamples);
+    torch::jit::InterpreterState(code).run(stack);
+  };
+  if (metricsEnabled()) {
+    evalMetrics(task, numSamples);
+  } else {
+    auto result = evaluate(task);
     print(std::cout, "Latency: ", fmtDuration(result.mean()), '\n');
     printProfilingResults(result.count);
   }

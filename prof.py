@@ -1,14 +1,38 @@
 import ast
+import ctypes
+import os
 from dataclasses import dataclass
 from time import perf_counter
 from typing import Dict, Optional
 
 import torch
-import ctypes
 
 _lib = ctypes.cdll.LoadLibrary('build/libltprof.so')
 
 _enabled = False
+
+
+def metrics_enabled():
+    return os.getenv('ENABLE_METRICS') is not None
+
+
+def initialize_metrics():
+    _lib.initializeMetrics()
+
+
+def finalize_metrics():
+    _lib.finalizeMetrics()
+
+
+def begin_profiler_pass():
+    _lib.beginProfilerPass()
+
+
+def end_profiler_pass():
+    _lib.endProfilerPass()
+
+def all_passes_submitted():
+    return _lib.allPassesSubmitted()
 
 
 def enable_profiling():
