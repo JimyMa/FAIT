@@ -37,6 +37,8 @@ def parse_args():
                         help='Whether to trace the model or not')
     parser.add_argument('-c', '--compile', type=str, 
                         help='Compile the model with specific backend.')
+    parser.add_argument('-s', '--save', action='store_true',
+                        help='Wheather save features extracted by vision network')
     args = parser.parse_args()
 
 
@@ -58,6 +60,13 @@ def main():
         mod(dataset[idx:idx+1])
 
     print(f'Latency: {fmt_duration(evaluate(task).mean())}')
+    
+    if args.save:
+        feats = []
+        for idx in range(num_samples):
+            feat = mod(dataset[idx:idx+1])
+            feats.append(feat)
+    torch.save(feats, "{}_feat.pt".format(module_classes[args.model]))
 
 
 if __name__ == '__main__':

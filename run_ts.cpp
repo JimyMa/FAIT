@@ -13,6 +13,7 @@ int main(int argc, const char *argv[]) {
     std::cerr << "usage: example <script-module> <input-types> <input-data>\n";
     return 1;
   }
+  vision::cuda_version();
   at::globalContext().lazyInitCUDA();
   Module mod;
   try {

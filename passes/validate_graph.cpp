@@ -11,7 +11,7 @@ static void validate(Block *block, std::unordered_set<Value *> &defined) {
     std::stringstream ss;
     ss << "%" + value->debugName() + " used without defined before: \n"
        << *node;
-    throw c10::Error(ss.str(), c10::get_backtrace());
+    throw c10::Error(ss.str(), "");
   };
   auto pushValue = [&](Value *value) {
     defined.insert(value);
