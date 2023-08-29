@@ -4,9 +4,6 @@ The architecture overview of FAIT is as follows:
 
 ![arch_overview](docs/imgs/arch_overview.png)
 
-
-
-
 ## Dependency
 - LibTorch
 - LibTorchVision
@@ -18,7 +15,7 @@ git clone https://github.com/pytorch/vision.git
 cd vision
 git checkout release/2.0
 mkdir build && cd build
-cmake .. && make && make install
+cmake -DWITH_CUDA=ON .. && make && make install
 
 # build pytorch from source
 git clone https://github.com/pytorch/pytorch.git --recursive
