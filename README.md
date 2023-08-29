@@ -1,5 +1,5 @@
 # FAIT: A Holistic Functionalization Approach to Optimizing Imperative Tensor Programs in Deep Learning 
-TensorSSA and For Loop Auto Parallel in long-tail.
+**TensorSSA** and **For Loop** Auto Parallel in long-tail.
 The architecture overview of FAIT is as follows:
 
 ![arch_overview](docs/imgs/arch_overview.png)
