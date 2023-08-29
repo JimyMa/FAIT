@@ -31,7 +31,7 @@ git clone https://github.com/JimyMa/fait.git --recursive
 cd fait
 mkdir build && cd build
 cmake -DCMAKE_PREFIX_PATH=`python -c 'import torch;print(torch.utils.cmake_prefix_path)' ` ..
-make -j{$proc}
+make -j{$nproc}
 ```
 
 ## Run the imperative tensor program using FAIT
