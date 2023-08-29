@@ -21,12 +21,14 @@ mkdir build && cd build
 cmake .. && make && make install
 
 # build pytorch from source
-git clone https://github.com/pytorch/pytorch.git
+git clone https://github.com/pytorch/pytorch.git --recursive
 git checkout v2.0.0
 cd pytorch
 python setup.py develop --user
 
 # build source
+git clone https://github.com/JimyMa/fait.git --recursive
+cd fait
 mkdir build && cd build
 cmake -DCMAKE_PREFIX_PATH=`python -c 'import torch;print(torch.utils.cmake_prefix_path)' ` ..
 make -j{$proc}
