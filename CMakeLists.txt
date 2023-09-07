@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.26.0 FATAL_ERROR)
 
 # PYTORCH 2.1.0
 set(CMAKE_CXX_STANDARD 17)
